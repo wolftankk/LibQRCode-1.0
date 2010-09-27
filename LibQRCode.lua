@@ -24,14 +24,15 @@ if oldLib then
     end
 end
 
+local qrcode = {}
+local qrcode_MT = {__index = qrcode}
+
 function lib:New()
-
+    local builder = setmetatable({}, qrcode_MT); 
+    builder.canvas = CreateFrame("Frame");
+    return builder;
 end
 
-function lib:Parse(str)
-
-end
-
-function lib:Compile()
+function qrcode:Create(str, size)
 
 end
