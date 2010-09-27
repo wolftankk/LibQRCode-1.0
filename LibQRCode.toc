@@ -1,0 +1,10 @@
+## Interface: 30300
+## Title: LibQRCode
+## Notes: QR Code builder library
+## Author: wolftankk
+## X-Max-Interface: 40000
+## X-Min-Interface: 30000
+## X-Compatible-With: 40000
+
+LibStub\LibStub.lua
+LibQRCode.lua
