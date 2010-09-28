@@ -9,6 +9,7 @@ License: Apache 2.0 License
 ]]
 --debug
 strmatch = string.match;
+strlen = string.len;
 if (dofile) then
     dofile([[/home/workspace/LibStub/LibStub.lua]]);
 end
@@ -35,6 +36,10 @@ end
 --@class QRCode
 local QRCode = {}
 local QRCode_MT = {__index = QRCode}
+
+local BitArray = {}
+local BitArray_MT = { __index = BitArray }
+
 --@class Mode class
 local Mode = {}
 local Mode_MT = {__index = Mode};
@@ -77,26 +82,21 @@ local NUM_MASK_PATTERNS = 8;
 local VERSIONS = {};--version 1 ~ 40 container of the QRCode
 local QUITE_ZONE_SIZE = 4;
 -------------------------------------------------------------------------------------
-
-function lib:New()
-    --test code
-    local str = 13788953440
-    
-end
-
 ---reset rcode params
 --@usage local a = LibStub("LibQRCode-1.0"); a:reset();
-function QRCode:reset()
-    self.mode = nil;
-    self.ecLevel = nil;
-    self.version = -1;
-    self.matrixWidth = -1;
-    self.maskPattern = -1;
-    self.numTotalBytes = -1;
-    self.numDataBytes = -1;
-    self.numECBytes = -1;
-    self.numRSBlocks = -1;
-    self.matrix = nil;
+function QRCode:New()
+    local newObj = setmetatable({}, QRCode_MT);
+    newObj.mode = nil;
+    newObj.ecLevel = nil;
+    newObj.version = -1;
+    newObj.matrixWidth = -1;
+    newObj.maskPattern = -1;
+    newObj.numTotalBytes = -1;
+    newObj.numDataBytes = -1;
+    newObj.numECBytes = -1;
+    newObj.numRSBlocks = -1;
+    newObj.matrix = nil;
+    return newObj
 end
 
 ---get mode of the QRCode
@@ -225,6 +225,37 @@ function QRCode:isVaild()
         self:isValidMaskPattern(self.maskPattern) and
         (self.numTotalBytes == (self.numDataBytes + self.numECBytes)) and
         self.matrix ~= nil and (self.matrixWidth == self.matrix:getWidth()) and (self.matrix:getHeight() == self.matrix:getWidth()))
+end
+
+---------------------------------------------------
+-- BitArray
+---------------------------------------------------
+function BitArray:New(size)
+    local newObj = setmetatable({}, BitArray_MT);
+    newObj.size = size or 0;
+    newObj.bits = {}
+    return newObj
+end
+
+function BitArray:getSize()
+    return self.size;
+end
+
+function BitArray:AppendBit(b)
+    if (b) then
+        print(self.size)
+        print(bit.rshift(self.size, 5))
+    end
+    self.size = self.size + 1;
+end
+
+function BitArray:appendBits(value, numBits)
+    if numBits < 0 or numBits > 32 then
+        error("num bits must be between 0 and 32", 2);
+    end
+    for numBitsLeft = numBits, 0, -1  do
+        self:AppendBit((bit.band(bit.rshift(value, (numBitsLeft - 1)), 0x01)) == 1)
+    end
 end
 
 ---------------------------------------------------
@@ -553,8 +584,83 @@ end
 --------------------------------------------------------
 -- Encode method class
 --------------------------------------------------------
-function Encode:New()
+function Encode:New(contents, hints, qrcode)
+    local newObj = setmetatable({}, Encode_MT);
+    local encoding = "";
+    if hints == nil then
+        local encoding = "utf8";
+    end
+   
+    --setup 1: choose the mode(encoding);
+    local mode = newObj:chooseMode(contents, encoding)
+    --setup 2: append bytes into dataBits in approprise encoding
+    local dataBits = BitArray:New();
+    newObj:appendBytes(contents, mode, dataBits, encoding);
+    -- setup 3: initialize QRCode that can contain "dataBites"
 
+    -- setup 4: build another bit vector that contains header and data
+
+    -- setup 4.5: append ECI message if applicale
+    -- setup 5: terminate the bits properly
+    -- setup 6: interleave data bits with error correction code;
+    -- setup 7: choose the mask pattern and set to "qrCode"
+    -- setup 8 build the matrix and set it to qrcode
+    -- setup 9: make sure we have a vaild qrcode
+    return newObj
+end
+
+function Encode:chooseMode(contents, encoding)
+    --test is always byte
+    local hasNumberic = false;
+    local hasAlphanumberic = false;
+    local charArray = {}
+    local currentIndex = 1;
+    while (currentIndex <= #contents) do
+        local char = string.byte(contents, currentIndex);
+        table.insert(charArray, char);
+        currentIndex = currentIndex + 1;
+    end
+
+    for i = 1, #charArray do
+        local c = charArray[i];
+        if (c >= string.byte(0) and c <= string.byte(9)) then
+            hasNumberic = true;
+        else
+            return Mode.BYTE;
+        end
+    end
+    
+    if hasAlphanumberic then
+        return Mode.ALPHANUMBERIC;
+    elseif hasNumberic then
+        return Mode.NUMBERIC;
+    end
+    return Mode.BYTE;
+end
+
+function Encode:appendBytes(content, mode, bits, encoding)
+    local modeName = mode:getName();
+    if modeName == "NUMBERIC" then
+        self:appendNumbericBytes(content, bits)
+    elseif modeName == "ALPHANUMBERIC" then
+
+    end
+end
+
+function Encode:appendNumbericBytes(content, bits)
+    local len = #content;
+    local i = 0;
+    while i < len do
+        local num1 = string.sub(content, i+1, i+1);
+        if (i + 2 < len) then
+            --encode three numberic letters in ten bits
+            local num2 = string.sub(content, i + 2, i + 2);
+            local num3 = string.sub(content, i + 3, i + 3);
+            bits:appendBits(num1 * 100 + num2 * 10 + num3 , 10);
+            i = i + 3;
+        end
+        i = i + 1
+    end
 end
 
 --------------------------------------------------------
@@ -576,7 +682,8 @@ function QRCodeWriter:New(contents, width, height, hints)
     end
     local code = QRCode:New();
     Encode:New(contents, ecLevel, hints, code);
-    return newObj:renderResult(code, width, height);
+    newObj:renderResult(code, width, height);
+    return newObj
 end
 
 --- note that the input matrix uses 0 = white , 1 = black
@@ -600,8 +707,17 @@ do
     end
   })
 end
+
+
+--final
+function lib:new()
+    local barcode = QRCodeWriter:New("13788953440", 256, 256);
+    --local barcode.canvas = CreateFrame("Frame", nil)
+end
+
 --[[
 test code
 ]]
-local barcode = LibStub("LibQRCode-1.0"):New();
-print(VERSIONS[1])
+do
+    lib:new();
+end
