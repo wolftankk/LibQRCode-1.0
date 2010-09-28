@@ -48,14 +48,18 @@ local ECB_MT = {__index = ECB};
 --@class ECBlocks class
 local ECBlocks = {}
 local ECBlocks_MT = {__index = ECBlocks}
+--@class encode
+local Encode = {};
+local Encode_MT = {__index = Encode};
 --@class Version class
 local Version = {}
 local Version_MT = {__index = Version}
 --@class byte matrix
 local bMatrix = {}
 local bMatrix_MT = {__index = bMatrix};
-
+--@class QRCodeWriter
 local QRCodeWriter = {}
+local QRCodeWriter_MT = {__index = QRCodeWriter}
 -- constant
 --------------------------------------------------------------------------------------
 ---the original table is defined in the table 5 of JISX0510:2004 (p19)
@@ -71,6 +75,7 @@ local QRCODE_MATRIX = 17;
 local QRCODE_MATRIX_PER_VERSION = 4;
 local NUM_MASK_PATTERNS = 8;
 local VERSIONS = {};--version 1 ~ 40 container of the QRCode
+local QUITE_ZONE_SIZE = 4;
 -------------------------------------------------------------------------------------
 
 function lib:New()
@@ -546,11 +551,41 @@ function bMatrix:clear(value)
 end
 
 --------------------------------------------------------
--- QRCodeWriter method class
+-- Encode method class
 --------------------------------------------------------
-function QRCodeWriter:New()
+function Encode:New()
+
 end
 
+--------------------------------------------------------
+-- QRCodeWriter method class
+--------------------------------------------------------
+function QRCodeWriter:New(contents, width, height, hints)
+    local newObj = setmetatable({}, QRCodeWriter_MT);
+    --checkArgs
+    if (contents == nil or contents == "" or strlen(contents) == 0 or type(contents) ~= "string") then
+        error("contents is empty or not string.", 2);
+    end
+    
+    if (width < 0 or height < 20 or type(width) ~= "number" or type(height) ~= "number") then
+        error("Requested dimensions are too small or not number." ,2)
+    end
+    local ecLevel  = ECList.L;--use L ecLevel
+    if (hints ~= nil) then
+
+    end
+    local code = QRCode:New();
+    Encode:New(contents, ecLevel, hints, code);
+    return newObj:renderResult(code, width, height);
+end
+
+--- note that the input matrix uses 0 = white , 1 = black
+-- while the output matrix uses
+-- texture: WHITE8X8
+function QRCodeWriter:renderResult(code, width, height)
+
+end
+--------------------------------------------------------
 do
   lib.QRCode = setmetatable({}, {
     __index = QRCode_MT,
