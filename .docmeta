@@ -1,5 +1,4 @@
 -
   type: luadoc
-  input-files:
-    - "LibQRCode.lua"
-  output-directory: API
+  input-file: LibQRCode.lua
+  output-page: "API reference"
