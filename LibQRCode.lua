@@ -5,12 +5,15 @@ Author(s): wolftankk
 Description: QR Code builder library.
 Dependency: LibStub
 Document: http://www.swetake.com/qr/qr1_en.html
-License: BSD License
+License: Apache 2.0 License
 ]]
 --debug
 strmatch = string.match;
 if (dofile) then
     dofile([[/home/workspace/LibStub/LibStub.lua]]);
+end
+if require then
+     bit = require("bit")
 end
 
 local MAJOR_VERSION = "LibQRCode-1.0";
@@ -35,6 +38,13 @@ local qrcode_MT = {__index = qrcode}
 --@class Mode class
 local Mode = {}
 local Mode_MT = {__index = Mode};
+--@class ErrorCorrectionLevel  ecLevel
+local ErrorCorrectionLevel = {};
+local ErrorCorrectionLevel_MT = {__index = ErrorCorrectionLevel}
+local ECList = {};
+--@class ECB
+local ECB = {}
+local ECB_MT = {__index = ECB};
 --@class ECBlocks class
 local ECBlocks = {}
 local ECBlocks_MT = {index = ECBlocks}
@@ -60,14 +70,13 @@ local ALPHANUMBERIC_TABLE = {
 local QRCODE_MATRIX = 17;
 local QRCODE_MATRIX_PER_VERSION = 4;
 local NUM_MASK_PATTERNS = 8;
-
-
+local VERSIONS = {};--version 1 ~ 40 container of the QRCode
 -------------------------------------------------------------------------------------
 
 function lib:New()
-    --local builder = setmetatable({}, qrcode_MT); 
-    --builder.canvas = CreateFrame("Frame");
-    --return builder;
+    --test code
+    local str = 13788953440
+    
 end
 
 ---reset qrcode params
@@ -213,13 +222,92 @@ function qrcode:isVaild()
         self.matrix ~= nil and (self.matrixWidth == self.matrix:getWidth()) and (self.matrix:getHeight() == self.matrix:getWidth()))
 end
 
+---------------------------------------------------
+-- Error Correction 
+---------------------------------------------------
+-- This enum encapsulates the four error correction levels defined 
+-- by the QRCode standard.
+function ErrorCorrectionLevel:New(ordinal, bits, name)
+    local newObj = setmetatable({}, ErrorCorrectionLevel_MT);
+    newObj.ordinal = ordinal;
+    newObj.bits = bits;
+    newObj.name = name;
+end
+
+function ErrorCorrectionLevel:ordinal()
+    return self.ordinal
+end
+
+function ErrorCorrectionLevel:getBits()
+    return self.bits
+end
+
+function ErrorCorrectionLevel:getName()
+    return self.name
+end
+
+do
+    -- L = ~7% correction
+    local L = ErrorCorrectionLevel:New(0, 0x01, "L")
+    -- M = ~15%
+    local M= ErrorCorrectionLevel:New(1, 0x00, "M")
+    -- Q = ~25%
+    local Q = ErrorCorrectionLevel:New(2, 0x02, "Q")
+    -- H ~= 30%
+    local H = ErrorCorrectionLevel:New(3, 0x03, "H")
+
+    ErrorCorrectionLevel = {L, M, Q, H}; 
+    ECList = {L, M, Q, H}
+end
+-----------------------------------------------
+--ECB method class
+-----------------------------------------------
+--- Encapsualtes the parameters for one error-correction block in one symbol version.
+-- This includes the number of data codewords, and the number of times a block with these
+-- paramers is used consecutively in the QRCode version's format.
+function ECB:New(count, dataCodewords)
+    local newObj = setmetatable({}, ECB_MT);
+    newObj.count = count;
+    newObj.dataCodewords = dataCodewords;
+    return newObj;
+end
+
+function ECB:getCount()
+    return self.count;
+end
+
+function ECB:getDataCodewords()
+    return self.dataCodewords;
+end
 -----------------------------------------------
 -- ECBlocks method class
 -----------------------------------------------
-function ECBlocks:New()
-
+function ECBlocks:New(ecCodewordsPerBlock, ...)
+    local newObj = setmetatable({}, {__index = ECBlocks_MT});
+    newObj.ecCodewordsPerBlock = ecCodewordsPerBlock;
+    newObj.ecBlocks = {...};
+    return newObj;
 end
 
+function ECBlocks:getECCodewordsPerBlock()
+    return self.ecCodewordsPerBlock;
+end
+
+function ECBlocks:getNumBlocks()
+    local total = 0;
+    for i = 1, #self.ecBlocks do
+        total = total + ecBlocks[i]:getCount();
+    end
+    return total
+end
+
+function ECBlocks:getTotalECCodewords()
+    return self.ecCodewordsPerBlock * self:getNumBlocks();
+end
+
+function ECBlocks:getECBlocks()
+    return self.ecBlocks;
+end
 -----------------------------------------------
 -- Version method class
 -----------------------------------------------
@@ -260,6 +348,23 @@ function Version:getECBlocksForLevel(ecLevel)
     return self.ecBlocks[ecLevel:ordinal()]
 end
 
+--- Deduce version information purely for the QRCode dimensions.
+--
+-- @param dimension dimension in modules;
+-- @return Version for a QRCode of that dimension;
+function Version:getProvisionalVersionForDimension(dimension)
+    if (dimension % 4 ~= 1) then
+        error("dimension is error", 2);
+    end
+    return self:getVersionForNumber(bit.rshift((dimension - 17), 2)); 
+end
+
+function Version:getVersionForNumber(versionNumber)
+    if (versionNumber < 1 or versionNumber > 40) then
+        error("version number is invaild value", 2);
+    end
+    return VERSIONS[versionNumber];
+end
 ------------------------------------------------
 -- Mode method class
 ------------------------------------------------
@@ -392,9 +497,15 @@ function QRCodeWriter:New()
 end
 
 do
+  lib.qrcode = setmetatable({}, {
+    __index = qrcode_MT,
+    __newindex = function()
+        error("attemp to update a read-only table", 2);
+    end
+  })
   lib.bMatrix = setmetatable({}, {
     __index = bMatrix_MT,
-    __newinde = function() 
+    __newindex = function() 
         error("attemp to update a read-only table",2)
     end
   })
@@ -402,5 +513,4 @@ end
 --[[
 test code
 ]]
---local barcode = LibStub("LibQRCode-1.0"):New();
---barcode:Create("http://www.wowace.com", "l");
+local barcode = LibStub("LibQRCode-1.0"):New();
