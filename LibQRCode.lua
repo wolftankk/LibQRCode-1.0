@@ -32,9 +32,9 @@ if oldLib then
 end
 
 --- metatable list
---@class qrcode
-local qrcode = {}
-local qrcode_MT = {__index = qrcode}
+--@class QRCode
+local QRCode = {}
+local QRCode_MT = {__index = QRCode}
 --@class Mode class
 local Mode = {}
 local Mode_MT = {__index = Mode};
@@ -79,9 +79,9 @@ function lib:New()
     
 end
 
----reset qrcode params
+---reset rcode params
 --@usage local a = LibStub("LibQRCode-1.0"); a:reset();
-function qrcode:reset()
+function QRCode:reset()
     self.mode = nil;
     self.ecLevel = nil;
     self.version = -1;
@@ -95,109 +95,109 @@ function qrcode:reset()
 end
 
 ---get mode of the QRCode
-function qrcode:GetMode()
+function QRCode:GetMode()
     return self.mode;
 end
 
 ---set mode of the QRCode
-function qrcode:SetMode(mode)
+function QRCode:SetMode(mode)
     self.mode = mode
 end
 
 ---get error correction level of the QRCode
-function qrcode:GetECLevel()
+function QRCode:GetECLevel()
     return self.ecLevel;
 end
 
 ---set error correction level of the QRCode
-function qrcode:SetSCLevel(value)
+function QRCode:SetSCLevel(value)
     self.ecLevel = value;
 end
 
 ---get version of the QRCode, the bigger version, the bigger size
-function qrcode:GetVersion()
+function QRCode:GetVersion()
     return self.version
 end
 
 ---set version of the QRCode
-function qrcode:SetVersion(value)
+function QRCode:SetVersion(value)
     self.version = value;
 end
 
 ---get bytesMatrix width of the QRCode
-function qrcode:GetMatrixWidth()
+function QRCode:GetMatrixWidth()
     return self.matrixWidth
 end
 
 ---set bytesMatrix width of the QRCode
-function qrcode:SetMatrixWidth(value)
+function QRCode:SetMatrixWidth(value)
     self.matrixWidth = value
 end
 
 ---get Mask pattern of the QRCode
-function qrcode:GetMaskPattern()
+function QRCode:GetMaskPattern()
     return self.maskPattern
 end
 
 ---check if "mask pattern" is vaild
-function qrcode:isValidMaskPattern(maskPattern)
+function QRCode:isValidMaskPattern(maskPattern)
     return (maskPattern > 0 and maskPattern < NUM_MASK_PATTERNS)
 end
 
 ---set mask pattern of the QRCode
-function qrcode:SetMaskPattern(value)
+function QRCode:SetMaskPattern(value)
     self.maskPattern = value
 end
 
 ---get number of total bytes in the QRCode
-function qrcode:GetNumTotalBytes()
+function QRCode:GetNumTotalBytes()
     return self.numTotalBytes;
 end
 
-function qrcode:SetNumTotalBytes(value)
+function QRCode:SetNumTotalBytes(value)
     self.numTotalBytes = value
 end
 
 ---get number of data bytes in the QRCode
-function qrcode:GetNumDataBytes()
+function QRCode:GetNumDataBytes()
     return self.numDataBytes
 end
 
-function qrcode:SetNumDataBytes(value)
+function QRCode:SetNumDataBytes(value)
     self.numDataBytes = value;
 end
 
 ---get number of error correction in the QRCode
-function qrcode:GetNumECBytes()
+function QRCode:GetNumECBytes()
     return self.numECBytes;
 end
 
-function qrcode:SetNumECBytes(value)
+function QRCode:SetNumECBytes(value)
     self.numECBytes = value;
 end
 
 ---get number of Reedsolomon blocks in the QRCode
-function qrcode:GetNumRSBlocks()
+function QRCode:GetNumRSBlocks()
     return self.numRSBlocks;
 end
 
-function qrcode:SetNumRSBlocks(value)
+function QRCode:SetNumRSBlocks(value)
     self.numRSBlocks = value;
 end
 
 ---get ByteMatrix of the QRCode
-function qrcode:GetMatrix()
+function QRCode:GetMatrix()
     return self.matrix;
 end
 
-function qrcode:SetMatrix(value)
+function QRCode:SetMatrix(value)
     self.matrix = value
 end
 
 --- Return the value of the module(cell) point by "x" and "y" in the matrix of the QRCode
 -- They call cells in the matrix modules.
 -- @result number  1 represents a black cell, and 0 represents a white cell
-function qrcode:at(x, y)
+function QRCode:at(x, y)
     local value = self.matrix:get(x, y);
     if not(value == 0 or value == 1) then
         error("Matrix return value is bad.", 2);
@@ -207,7 +207,7 @@ end
 
 --- Check all the member vars are set properly.
 -- @resume boolean. true on success, otherwise returns false
-function qrcode:isVaild()
+function QRCode:isVaild()
     return (self.mode ~= nil and
         self.ecLevel ~= nil and
         self.version ~= -1 and
@@ -497,8 +497,8 @@ function QRCodeWriter:New()
 end
 
 do
-  lib.qrcode = setmetatable({}, {
-    __index = qrcode_MT,
+  lib.QRCode = setmetatable({}, {
+    __index = QRCode_MT,
     __newindex = function()
         error("attemp to update a read-only table", 2);
     end
