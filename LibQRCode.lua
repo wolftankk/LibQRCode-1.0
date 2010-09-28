@@ -47,7 +47,7 @@ local ECB = {}
 local ECB_MT = {__index = ECB};
 --@class ECBlocks class
 local ECBlocks = {}
-local ECBlocks_MT = {index = ECBlocks}
+local ECBlocks_MT = {__index = ECBlocks}
 --@class Version class
 local Version = {}
 local Version_MT = {__index = Version}
@@ -255,9 +255,8 @@ do
     local Q = ErrorCorrectionLevel:New(2, 0x02, "Q")
     -- H ~= 30%
     local H = ErrorCorrectionLevel:New(3, 0x03, "H")
-
-    ErrorCorrectionLevel = {L, M, Q, H}; 
     ECList = {L, M, Q, H}
+    ErrorCorrectionLevel.ECList = ECList;
 end
 -----------------------------------------------
 --ECB method class
@@ -283,7 +282,7 @@ end
 -- ECBlocks method class
 -----------------------------------------------
 function ECBlocks:New(ecCodewordsPerBlock, ...)
-    local newObj = setmetatable({}, {__index = ECBlocks_MT});
+    local newObj = setmetatable({}, ECBlocks_MT);
     newObj.ecCodewordsPerBlock = ecCodewordsPerBlock;
     newObj.ecBlocks = {...};
     return newObj;
@@ -364,6 +363,62 @@ function Version:getVersionForNumber(versionNumber)
         error("version number is invaild value", 2);
     end
     return VERSIONS[versionNumber];
+end
+
+do
+    --see ISO 180004:2006 6.5.1 table 9
+    VERSIONS = {
+      Version:New(1, {},      ECBlocks:New(7, ECB:New(1, 19)),
+                              ECBlocks:New(10, ECB:New(1, 16)),
+                              ECBlocks:New(13, ECB:New(1, 13)), 
+                              ECBlocks:New(17, ECB:New(1, 9)) 
+      ),--1
+      Version:New(2, {6, 18}, ECBlocks:New(10, ECB:New(1, 34)), 
+                              ECBlocks:New(16, ECB:New(1, 28)),
+                              ECBlocks:New(22, ECB:New(1, 22)), 
+                              ECBlocks:New(28, ECB:New(1, 16))
+      ),--2
+      Version:New(3, {6, 22}, ECBlocks:New(15, ECB:New(1, 55)),
+                              ECBlocks:New(26, ECB:New(1, 44)),
+                              ECBlocks:New(18, ECB:New(2, 17)),
+                              ECBlocks:New(22, ECB:New(2, 13))
+      ),--3
+      Version:New(4, {6, 26}, ECBlocks:New(20, ECB:New(1, 80)),
+                              ECBlocks:New(18, ECB:New(2, 32)), 
+                              ECBlocks:New(26, ECB:New(2, 24)),
+                              ECBlocks:New(16, ECB:New(4, 9))
+      ),--4
+      Version:New(5, {6, 30}, ECBlocks:New(26, ECB:New(1, 108)),
+                              ECBlocks:New(24, ECB:New(2, 43)),
+                              ECBlocks:New(18, ECB:New(2, 15), ECB:New(2, 16)),
+                              ECBlocks:New(22, ECB:New(2, 11), ECB:New(2, 12))
+      ),--5
+      Version:New(6, {6, 34}, ECBlocks:New(18, ECB:New(2, 68)),
+                              ECBlocks:New(16, ECB:New(4, 27)),
+                              ECBlocks:New(24, ECB:New(4, 19)),
+                              ECBlocks:New(28, ECB:New(4, 15))
+      ),--6
+      Version:New(7, {6, 22, 38}, ECBlocks:New(20, ECB:New(2, 78)),
+                                  ECBlocks:New(18, ECB:New(4, 31)),
+                                  ECBlocks:New(18, ECB:New(2, 14), ECB:New(4, 15)),
+                                  ECBlocks:New(26, ECB:New(4, 13), ECB:New(1, 14))
+      ),--7
+      Version:New(8, {6, 24, 42}, ECBlocks:New(24, ECB:New(2, 97)),
+                                  ECBlocks:New(22, ECB:New(2, 38), ECB:New(2, 39)),
+                                  ECBlocks:New(22, ECB:New(4, 18), ECB:New(2, 19)),
+                                  ECBlocks:New(26, ECB:New(4, 14), ECB:New(2, 15))
+      ),--8
+      Version:New(9, {6, 26, 46}, ECBlocks:New(30, ECB:New(2, 116)),
+                                  ECBlocks:New(22, ECB:New(3, 36), ECB:New(2, 37)),
+                                  ECBlocks:New(20, ECB:New(4, 16), ECB:New(4, 17)),
+                                  ECBlocks:New(24, ECB:New(4, 12), ECB:New(4, 13))
+      ),--9
+      Version:New(10, {6, 28, 50}, ECBlocks:New(18, ECB:New(2, 68), ECB:New(2, 69)),
+                                   ECBlocks:New(26, ECB:New(4, 43), ECB:New(1, 44)),
+                                   ECBlocks:New(24, ECB:New(6, 19), ECB:New(2, 20)),
+                                   ECBlocks:New(28, ECB:New(6, 15), ECB:New(2, 16))
+      ),--10
+    }
 end
 ------------------------------------------------
 -- Mode method class
@@ -514,3 +569,4 @@ end
 test code
 ]]
 local barcode = LibStub("LibQRCode-1.0"):New();
+print(VERSIONS[1])
