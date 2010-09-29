@@ -63,9 +63,18 @@ local Version_MT = {__index = Version}
 --@class byte matrix
 local bMatrix = {}
 local bMatrix_MT = {__index = bMatrix};
+
+local MatrixUtil = {}
+local MatrixUtil_MT = { __index = MatrixUtil };
 --@class QRCodeWriter
 local QRCodeWriter = {}
 local QRCodeWriter_MT = {__index = QRCodeWriter}
+
+local Vector = {}
+local Vector_MT = { __index = Vector }
+
+local GF256 = {}
+local GF256_MT = { __index = Get256 }
 
 local ReedSolomonEncode = {}
 local ReedSolomonEncode_MT = { __index = ReedSolomonEncode}
@@ -308,11 +317,6 @@ function BitArray:appendBits(value, numBits)
 end
 
 --------------------------------------------------------------------
-local Vector = {}
-local Vector_MT = { __index = Vector }
-
-local GF256 = {}
-local GF256_MT = { __index = Get256 }
 
 function GF256:New(primitive)
     local newObj = setmetatable({}, GF256_MT);
@@ -659,6 +663,40 @@ function bMatrix:clear(value)
 end
 
 --------------------------------------------------------
+-- Matrix util
+--------------------------------------------------------
+function MatrixUtil:New()
+    return setmetatable({}, MatrixUtil_MT);
+end
+
+--constant
+MatrixUtil.POSITION_DETECTION_PATTERN = {
+    {1, 1, 1, 1, 1, 1, 1},
+    {1, 0, 0, 0, 0, 0, 1},
+    {1, 0, 1, 1, 1, 0, 1},
+    {1, 0, 1, 1, 1, 0, 1},
+    {1, 0, 1, 1, 1, 0, 1},
+    {1, 0, 0, 0, 0, 0, 1},
+    {1, 1, 1, 1, 1, 1, 1},
+}
+
+MatrixUtil.POSITION_ADJUSTMENT_PATTERN = {
+    {1, 1, 1, 1, 1},
+    {1, 0, 0, 0, 1},
+    {1, 0, 1, 0, 1},
+    {1, 0, 0, 0, 1},
+    {1, 1, 1, 1, 1},
+}
+
+MatrixUtil.HORIZONTAL_SEPARATION_PATTERN = {
+    {0,0,0,0,0,0,0,0}
+}
+
+MatrixUtil.VERTICAL_SEPARATION_PATTERN = {
+    {0},{0},{0},{0},{0},{0},{0},{0},
+}
+
+--------------------------------------------------------
 -- Encode method class
 --------------------------------------------------------
 function Encode:New(contents, ecLevel, hints, qrcode)
@@ -689,9 +727,12 @@ function Encode:New(contents, ecLevel, hints, qrcode)
     newObj:terminateBits(qrcode:GetNumDataBytes(), headerAndDataBits);
     -- setup 6: interleave data bits with error correction code;
     local finalBits = BitArray:New();
-    newObj:interLeaveWithECBytes(headerAndDataBits, qrcode:GetNumTotalBytes(), qrcode:GetNumDataBytes(), qrcode:GetNumRSBlocks(), finalBits);
+    --@TODO: need GF256, ReedSolomonEncoder
+    --newObj:interLeaveWithECBytes(headerAndDataBits, qrcode:GetNumTotalBytes(), qrcode:GetNumDataBytes(), qrcode:GetNumRSBlocks(), finalBits);
 
     -- setup 7: choose the mask pattern and set to "qrCode"
+    local matrix = bMatrix:New(qrcode:GetMatrixWidth(), qrcode:GetMatrixWidth()); 
+    qrcode:SetMaskPattern(newObj:chooseMaskPattern(finalBits, qrcode:GetECLevel(), qrcode:GetVersion(), matrix));
     -- setup 8 build the matrix and set it to qrcode
     -- setup 9: make sure we have a vaild qrcode
     return newObj
@@ -731,6 +772,15 @@ function Encode:chooseMode(contents, encoding)
     end
 
     return Mode.BYTE;
+end
+
+function Encode:chooseMaskPattern(bits, ecLevel, version, matrix)
+    local minPenaly = 2^31 - 1;
+    local bestMaskPattern = -1;
+    for maskPattern = 1, NUM_MASK_PATTERNS do
+        
+        
+    end
 end
 
 function Encode:appendBytes(content, mode, bits, encoding)
