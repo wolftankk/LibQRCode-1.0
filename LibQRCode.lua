@@ -332,14 +332,14 @@ local GF256Poly_MT = {__index = GF256Poly};
 
 function GF256Poly:New(field, coefficients)
     local newObj = setmetatable({}, GF256Poly_MT);
-    if coefficients == nil then
+    --print(coefficients)
+    if coefficients == nili or #coefficients == 0 then
         error("coefficients need a table type", 2);
     end
-
     newObj.field = field;
     local coefficientsLength = #coefficients
     if (coefficientsLength > 1 and coefficients[1] == 0) then
-
+        print("need develop 342 GF256Poly:New.")
     else
         newObj.coefficients = coefficients;
     end
@@ -372,6 +372,21 @@ function GF256Poly:evaluateAt(a)
     end
 end
 
+function GF256Poly:multiplyByMonomial(degree, coefficient)
+    if degree < 0 then
+        error("Degree must be a integer number.", 2);
+    end
+    if coefficient == 0 then
+        return self.field:getZero()
+    end
+    local size = #self.coefficients;
+    local product = {};
+    for i = 1, size do
+        product[i] = self.field:multiply(self.coefficients[i], coefficient);
+    end
+    return GF256Poly:New(self.field, product);
+end
+
 function GF256Poly:multiply(other)
     if (self.field ~= other.field) then
         error("GF256Polys do not have same GF256 field", 2);
@@ -395,12 +410,30 @@ function GF256Poly:multiply(other)
     end
     return GF256Poly:New(self.field, product);
 end
+
+function GF256Poly:divide(other)
+    if (self.field ~= other.field) then
+        error("GF256Polys do not have same GF256 field", 2);
+    end
+    if (other:isZero()) then
+       error("Divide by 0", 2) 
+    end
+
+    local quotient = self.field:getZero();
+    local remainder = self;
+    
+    --local denominatorLeadingTerm = other:getCoefficient(other:getDegree());
+end
 --------------------------------------------------------------------
 function GF256:New(primitive)
     local newObj = setmetatable({}, GF256_MT);
     
     newObj.expTable = {};
     newObj.logTable = {};
+    for i = 0, 254 do
+        newObj.expTable[i] = 0;
+        newObj.logTable[i] = 0;
+    end
     local x = 1;
    
     for i = 0, 254 do
@@ -438,7 +471,7 @@ function GF256:multiply(a, b)
         return 0
     end
     local logSum = self.logTable[a] + self.logTable[b]
-    return self.expTable[ bit.band(logSum, 0xFF) + bit.arshift(logSum, 8)]
+    return self.expTable[bit.band(logSum, 0xFF) + bit.arshift(logSum, 8)]
 end
 
 function GF256:exp(a)
@@ -475,6 +508,7 @@ function ReedSolomonEncode:builderGenerator(degree)
           lastGenerator = nextGenerator;
         end
     end
+    return self.cachedGenerators[degree + 1]
 end
 
 function ReedSolomonEncode:encode(toEncode, ecBytes)
@@ -489,11 +523,13 @@ function ReedSolomonEncode:encode(toEncode, ecBytes)
     end
     local generator = self:builderGenerator(ecBytes);
     local infoCoefficients = {};
+    for i = 1, dataBytes do
+        infoCoefficients[i] = 0;
+    end
     copyTable(toEncode, infoCoefficients);
     local info = GF256Poly:New(self.field, infoCoefficients);
-    --@TODO: need develop
-    --info = info:multiplyByMonomial(ecBytes, 1);
-    print(info)
+    info = info:multiplyByMonomial(ecBytes, 1);
+    local remainder = info:divide(generator);
 end
 
 
@@ -806,7 +842,7 @@ function bMatrix:getTable()
 end
 
 function bMatrix:get(x, y)
-    return bytes[y][x]
+    return self.bytes[y][x]
 end
 
 function bMatrix:set(x, y, value)
@@ -930,6 +966,46 @@ function MatrixUtil:clearMatrix(matrix)
 end
 
 function MatrixUtil:buildMatrix(dataBits, ecLevel, version, maskPattern, matrix)
+    self:clearMatrix(matrix);
+
+    --embeds base patterns
+    self:embedBasicPatterns(version, matrix);
+    
+end
+
+--- Embed basic patterns. On success, modify  the matrix and return true
+-- The basic patterns are:
+-- Position detection patterns
+-- Timing patterns
+-- Dark dont at the left bottom corner
+function MatrixUtil:embedBasicPatterns(version, matrix)
+    --first
+    -- lets get started with embedding big squares at corners
+    self:embedPositionDetectionPatternAndSquarators(matrix);
+end
+
+function MatrixUtil:embedPositionDetectionPattern(xStart, yStart, matrix)
+    for y = 1, 7 do
+        for x = 1, 7 do
+            matrix:set(xStart + x, yStart + y, self.POSITION_DETECTION_PATTERN[y][x])
+        end
+    end
+end
+
+function MatrixUtil:embedPositionDetectionPatternAndSquarators(matrix)
+    local pdpWidth = #self.POSITION_DETECTION_PATTERN[1]
+    
+    --left top corner
+    self:embedPositionDetectionPattern(0, 0, matrix);
+    --right top corner
+    self:embedPositionDetectionPattern(matrix:getWidth() - pdpWidth, 0 , matrix)
+    --left bottom corner
+    self:embedPositionDetectionPattern(0, matrix:getHeight() - pdpWidth, matrix);
+
+    local hspWidth = #self.HORIZONTAL_SEPARATION_PATTERN[1]
+    --left top corner
+
+
 end
 --------------------------------------------------------
 -- Encode method class
@@ -965,9 +1041,8 @@ function Encode:New(contents, ecLevel, hints, qrcode)
     -- if mode == BYTE, i see, it will need ECI class;
     local finalBits = BitArray:New();
     --@TODO: need GF256, ReedSolomonEncoder
-    newObj:interLeaveWithECBytes(headerAndDataBits, qrcode:GetNumTotalBytes(), qrcode:GetNumDataBytes(), qrcode:GetNumRSBlocks(), finalBits);
+    --newObj:interLeaveWithECBytes(headerAndDataBits, qrcode:GetNumTotalBytes(), qrcode:GetNumDataBytes(), qrcode:GetNumRSBlocks(), finalBits);
     
-    --[[
     -- setup 7: choose the mask pattern and set to "qrCode"
     local matrix = bMatrix:New(qrcode:GetMatrixWidth(), qrcode:GetMatrixWidth()); 
     qrcode:SetMaskPattern(newObj:chooseMaskPattern(finalBits, qrcode:GetECLevel(), qrcode:GetVersion(), matrix));
@@ -978,8 +1053,6 @@ function Encode:New(contents, ecLevel, hints, qrcode)
     --if (not qrcode:isVaild()) then
     --    error("Invaild QR Code.", 2)
     --end 
-    newObj.qrcode = qrcode;
-    ]]
     return newObj
 end
 
@@ -1156,10 +1229,12 @@ end
 function Encode:generateECBytes(dataBytes, numEcBytesInBlock)
     local numDataBytes = #dataBytes
     local toEncode = {};
+    for i = 1, numDataBytes + numEcBytesInBlock do
+        toEncode[i] = 0;
+    end
     for i = 1, numDataBytes do
         toEncode[i] = bit.band(dataBytes[i], 0xFF);
     end
-
     local RSEncoder = ReedSolomonEncode:New(GF256.QR_CODE_FIELD);
     RSEncoder:encode(toEncode, numEcBytesInBlock);
 end
@@ -1233,7 +1308,50 @@ end
 -- while the output matrix uses
 -- texture: WHITE8X8
 function QRCodeWriter:renderResult(code, width, height)
-
+    --for wow game    
+    local matrix = code:GetMatrix();
+    if not code.frame then
+        code.frame = CreateFrame("Frame", nil)
+        code.frame:SetWidth(width);
+        code.frame:SetHeight(height);
+        code.frame:SetBackdrop({
+            bgFile = "Interface\\DialogFrame\\UI-DialogBox-Gold-Background",
+            edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Gold-Border",
+            tile = true, 
+            tileSize = 32, 
+            edgeSize = 32, 
+            insets = {
+                left = 11,
+                right = 12,
+                top = 12,
+                bottom = 11
+            }
+        });
+        code.frame:SetBackdropColor(0, 0, 0);
+        code.frame:SetPoint("CENTER", UIParent, "CENTER", 0, 0);
+    end
+    
+    --0 = white 1 = black
+    local matrixWidth = matrix:getWidth();
+    local texWidth = width / matrixWidth;--scale?
+    for y = 1, matrixWidth do
+        for x = 1, matrixWidth do
+            local tex = code.frame:CreateTexture(nil, "ARTWORK"); 
+            local c = matrix:get(x, y);
+            tex:SetTexture([[Interface\BUTTONS\WHITE8X8]]);
+            tex:SetPoint("TOPLEFT", code.frame, "TOPLEFT", x == 1 and 0 or x * 8, y == 1 and 0 or y * 8);
+            if c == 1 then
+                tex:SetVertexColor(0, 0, 0); 
+            elseif c == 0 then
+                tex:SetVertexColor(1, 1, 1);
+            else
+                tex:SetVertexColor(1, 1, 1);
+            end
+            tex:SetWidth(8);
+            tex:SetWidth(8);
+            tex:Show();
+        end
+    end
 end
 --------------------------------------------------------
 do
@@ -1262,5 +1380,5 @@ end
 test code
 ]]
 do
-    lib:new();
+    --lib:new();
 end
