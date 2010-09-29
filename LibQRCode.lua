@@ -1339,7 +1339,10 @@ function QRCodeWriter:renderResult(code, width, height)
             local tex = code.frame:CreateTexture(nil, "ARTWORK"); 
             local c = matrix:get(x, y);
             tex:SetTexture([[Interface\BUTTONS\WHITE8X8]]);
-            tex:SetPoint("TOPLEFT", code.frame, "TOPLEFT", x == 1 and 0 or x * 8, y == 1 and 0 or y * 8);
+            tex:SetPoint("TOPLEFT", code.frame, "TOPLEFT", x == 1 and texWidth or x * 8, y == 1 and -8 or -(y * 8));
+			tex:SetWidth(8);
+            tex:SetWidth(8);
+            tex:Show();
             if c == 1 then
                 tex:SetVertexColor(0, 0, 0); 
             elseif c == 0 then
@@ -1347,9 +1350,7 @@ function QRCodeWriter:renderResult(code, width, height)
             else
                 tex:SetVertexColor(1, 1, 1);
             end
-            tex:SetWidth(8);
-            tex:SetWidth(8);
-            tex:Show();
+            
         end
     end
 end
@@ -1380,5 +1381,6 @@ end
 test code
 ]]
 do
-    --lib:new();
+    lib:new();
+	--/dump LibStub("LibQRCode-1.0"):new()
 end
