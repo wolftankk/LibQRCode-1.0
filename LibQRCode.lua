@@ -81,6 +81,7 @@ local QRCODE_MATRIX_PER_VERSION = 4;
 local NUM_MASK_PATTERNS = 8;
 local VERSIONS = {};--version 1 ~ 40 container of the QRCode
 local QUITE_ZONE_SIZE = 4;
+local MAX_QRCODER_VERSIONS = 10;
 -------------------------------------------------------------------------------------
 ---reset rcode params
 --@usage local a = LibStub("LibQRCode-1.0"); a:reset();
@@ -257,7 +258,7 @@ end
 function BitArray:get(i)
 end
 
-function BitArray:AppendBit(b)
+function BitArray:appendBit(b)
     self:ensureCapacity(self.size + 1);
     if (b) then
        self.bits[bit.rshift(self.size, 5)] = bit.bor(self.bits[bit.rshift(self.size, 5)], (bit.lshift(1, bit.band(self.size, 0x1F)))); 
@@ -267,7 +268,11 @@ end
 
 function BitArray:ensureCapacity(size)
     if ( size > bit.lshift(select('#', self.bits), 5)) then
-        print(111)
+        local newBits = makeArray(size);
+        for k,v in pairs(self.bits) do
+            newBits[k] = v;
+        end
+        self.bits = newBits
     end
 end
 
@@ -275,11 +280,10 @@ function BitArray:appendBits(value, numBits)
     if numBits < 0 or numBits > 32 then
         error("num bits must be between 0 and 32", 2);
     end
-
     self:ensureCapacity(self.size + numBits);
 
     for numBitsLeft = numBits, 1, -1  do
-       self:AppendBit((bit.band(bit.rshift(value, (numBitsLeft - 1)), 0x01)) == 1)
+       self:appendBit((bit.band(bit.rshift(value, (numBitsLeft - 1)), 0x01)) == 1)
     end
 end
 
@@ -521,7 +525,7 @@ end
 -- @param version  version in question
 -- @return  number of bits used, in this QRCode symbol. to encode
 --  the count of characters that will follow encoded in this
-function Mode:getCharacterCountBitsForVersions(version)
+function Mode:getCharacterCountBits(version)
     if self.characterCountBitsForVersions == nil then
         error("LibQRCode-1.0: Character count doesnt apply to this mode.");
     end
@@ -529,11 +533,11 @@ function Mode:getCharacterCountBitsForVersions(version)
     local number = version:getVersionNumber();
     local offset;
     if number <= 9 then
-        offset = 0
+        offset = 1
     elseif number <= 26 then
-        offset = 1;
+        offset = 2;
     else
-        offset = 2
+        offset = 3;
     end
     return self.characterCountBitsForVersions[offset];
 end
@@ -626,10 +630,20 @@ function Encode:New(contents, ecLevel, hints, qrcode)
     local numInputsBytes = dataBits:getSizeInBytes();
     newObj:initQRCode(numInputsBytes, ecLevel, mode, qrcode);
     -- setup 4: build another bit vector that contains header and data
-
+    local headerAndDataBits = BitArray:New();
     -- setup 4.5: append ECI message if applicale
+    if (mode == Mode.BYTE) then
+        --@TODO: donothing now.
+    end
+    newObj:appendModeInfo(mode, headerAndDataBits)
+    local numLetters = mode == Mode.BYTE and dataBits:getSizeInBytes() or string.len(contents);
+    newObj:appendLengthInfo(numLetters, qrcode:GetVersion(), mode, headerAndDataBits);
     -- setup 5: terminate the bits properly
+    newObj:terminateBits(qrcode:GetNumDataBytes(), headerAndDataBits);
     -- setup 6: interleave data bits with error correction code;
+    local finalBits = BitArray:New();
+    newObj:interLeaveWithECBytes(headerAndDataBits, qrcode:GetNumTotalBytes(), qrcode:GetNumDataBytes(), qrcode:GetNumRSBlocks(), finalBits);
+
     -- setup 7: choose the mask pattern and set to "qrCode"
     -- setup 8 build the matrix and set it to qrcode
     -- setup 9: make sure we have a vaild qrcode
@@ -703,11 +717,23 @@ function Encode:appendNumericBytes(content, bits)
     end
 end
 
+function Encode:appendModeInfo(mode, bits)
+    bits:appendBits(mode:getBits(), 4)
+end
+
+function Encode:appendLengthInfo(numLetters, version, mode, bits)
+    local numBits = mode:getCharacterCountBits(Version:getVersionForNumber(version));
+    if (numLetters > (bit.lshift(1, numBits) - 1)) then
+        error(numLetters .. " is bigger than" .. ( bit.lshift(1, numBits) -1 ), 2);
+    end
+    bits:appendBits(numLetters, numBits);
+end
+
 function Encode:initQRCode(numInputsBytes, ecLevel, mode, qrcode)
     qrcode:SetECLevel(ecLevel);
     qrcode:SetMode(mode);
 
-    for versionNum = 1, 10 do
+    for versionNum = 1, MAX_QRCODER_VERSIONS  do
         local version = Version:getVersionForNumber(versionNum) 
         local numBytes = version:getTotalCodewords();
         local ecBlocks = version:getECBlocksForLevel(ecLevel);
@@ -726,6 +752,38 @@ function Encode:initQRCode(numInputsBytes, ecLevel, mode, qrcode)
             return;
         end 
     end
+    error("Cannot find proper rs block info (maybe input data too big?)", 2)
+end
+
+function Encode:terminateBits(numDataBytes, bits)
+    local capacity = bit.lshift(numDataBytes, 3);
+    if (bits:getSize() > capacity) then
+        error("The data bits cannot fit in the QRCode ".. bits:getSize(), 2);
+    end
+    local i = 0;
+    while (i < 4 and bits:getSize() < capacity) do
+        bits:appendBit(false)
+        i = i + 1;
+    end
+    local numBitsInLastByte = bit.band(bits:getSize(), 0x07);
+    if (numBitsInLastByte > 0) then
+        for n = numBitsInLastByte, 7, 1 do
+            bits:appendBit(false)
+        end
+    end
+
+    local numPaddingBytes = numDataBytes - bits:getSizeInBytes();
+    for i = 0, numPaddingBytes - 1, 1 do
+        bits:appendBits((bit.band(i, 0x01) == 0) and 0xEC or 0x11, 8);
+    end
+
+    if (bits:getSize() ~= capacity) then
+        error("Bits size does not equal capacity", 2);
+    end
+end
+
+function Encode:interLeaveWithECBytes()
+
 end
 
 --------------------------------------------------------
