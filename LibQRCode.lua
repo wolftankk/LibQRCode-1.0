@@ -68,7 +68,7 @@ local QRCodeWriter_MT = {__index = QRCodeWriter}
 -- constant
 --------------------------------------------------------------------------------------
 ---the original table is defined in the table 5 of JISX0510:2004 (p19)
-local ALPHANUMBERIC_TABLE = {
+local ALPHANUMERIC_TABLE = {
     -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, --0x00-0x0f
     -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, --0x10-0x1f
     36, -1, -1, -1, 37, 38, -1, -1, -1, -1, 39, 40, -1, 41, 42, 43,  -- 0x20-0x2f
@@ -471,9 +471,9 @@ function Mode:forBits(bits)
     if bits == 0x00 then
         return self.TERMINATOR
     elseif bits == 0x01 then
-        return self.NUMBERIC
+        return self.NUMERIC
     elseif bits == 0x02 then
-        return self.ALPHANUMBERIC;
+        return self.ALPHANUMERIC;
     elseif bits == 0x03 then
         return self.STRUCTURED_APPED;
     elseif bits == 0x04 then
@@ -522,8 +522,8 @@ end
 
 do
     Mode.TERMINATOR = Mode:New({0, 0, 0}, 0x00, "TERMINATOR")
-    Mode.NUMBERIC = Mode:New({10, 12, 14}, 0x01, "NUMBERIC")
-    Mode.ALPHANUMBERIC = Mode:New({9, 11, 13}, 0x02, "ALPHANUMBERIC");
+    Mode.NUMERIC = Mode:New({10, 12, 14}, 0x01, "NUMERIC")
+    Mode.ALPHANUMERIC = Mode:New({9, 11, 13}, 0x02, "ALPHANUMERIC");
     Mode.STRUCTURED_APPED = Mode:New({0, 0, 0}, 0x03, "STRUCTURED_APPED");--not suppered
     Mode.BYTE = Mode:New({8, 16, 16}, 0x04, "BYTE");
     Mode.ECI = Mode:New(nil, 0x07, "ECI");--dont apply
@@ -609,10 +609,11 @@ function Encode:New(contents, hints, qrcode)
     return newObj
 end
 
+--- @TODO: only NUMERIC
 function Encode:chooseMode(contents, encoding)
     --test is always byte
-    local hasNumberic = false;
-    local hasAlphanumberic = false;
+    local hasNumeric = false;
+    local hasAlphanumeric = false;
     local charArray = {}
     local currentIndex = 1;
     while (currentIndex <= #contents) do
@@ -624,30 +625,30 @@ function Encode:chooseMode(contents, encoding)
     for i = 1, #charArray do
         local c = charArray[i];
         if (c >= string.byte(0) and c <= string.byte(9)) then
-            hasNumberic = true;
+            hasNumeric = true;
         else
             return Mode.BYTE;
         end
     end
     
-    if hasAlphanumberic then
-        return Mode.ALPHANUMBERIC;
-    elseif hasNumberic then
-        return Mode.NUMBERIC;
+    if hasAlphanumeric then
+        return Mode.ALPHANUMERIC;
+    elseif hasNumeric then
+        return Mode.NUMERIC;
     end
     return Mode.BYTE;
 end
 
 function Encode:appendBytes(content, mode, bits, encoding)
     local modeName = mode:getName();
-    if modeName == "NUMBERIC" then
-        self:appendNumbericBytes(content, bits)
-    elseif modeName == "ALPHANUMBERIC" then
+    if modeName == "NUMERIC" then
+        self:appendNumericBytes(content, bits)
+    elseif modeName == "ALPHANUMERIC" then
 
     end
 end
 
-function Encode:appendNumbericBytes(content, bits)
+function Encode:appendNumericBytes(content, bits)
     local len = #content;
     local i = 0;
     while i < len do
