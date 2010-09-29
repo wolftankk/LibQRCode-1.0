@@ -1333,15 +1333,15 @@ function QRCodeWriter:renderResult(code, width, height)
     
     --0 = white 1 = black
     local matrixWidth = matrix:getWidth();
-    local texWidth = width / matrixWidth;--scale?
+    local texWidth = width / matrixWidth - 1;--scale?
     for y = 1, matrixWidth do
         for x = 1, matrixWidth do
             local tex = code.frame:CreateTexture(nil, "ARTWORK"); 
             local c = matrix:get(x, y);
             tex:SetTexture([[Interface\BUTTONS\WHITE8X8]]);
-            tex:SetPoint("TOPLEFT", code.frame, "TOPLEFT", x == 1 and texWidth or x * 8, y == 1 and -8 or -(y * 8));
-			tex:SetWidth(8);
-            tex:SetWidth(8);
+            tex:SetPoint("TOPLEFT", code.frame, "TOPLEFT", x == 1 and texWidth or x * texWidth, y == 1 and -texWidth or -(y * texWidth));
+			tex:SetWidth(texWidth);
+            tex:SetHeight(texWidth);
             tex:Show();
             if c == 1 then
                 tex:SetVertexColor(0, 0, 0); 
