@@ -74,7 +74,7 @@ local Vector = {}
 local Vector_MT = { __index = Vector }
 
 local GF256 = {}
-local GF256_MT = { __index = Get256 }
+local GF256_MT = { __index = GF256 }
 
 local ReedSolomonEncode = {}
 local ReedSolomonEncode_MT = { __index = ReedSolomonEncode}
@@ -96,6 +96,16 @@ local NUM_MASK_PATTERNS = 8;
 local VERSIONS = {};--version 1 ~ 40 container of the QRCode
 local QUITE_ZONE_SIZE = 4;
 local MAX_QRCODER_VERSIONS = 10;
+
+local function copyTable(t1, t2)
+    for k, v in pairs(t1) do
+        if type(v) == "table" then
+            t2[k] = {}
+            copyTable(v, t2[k]);
+        end
+        t2[k] = v
+    end
+end
 -------------------------------------------------------------------------------------
 ---reset rcode params
 --@usage local a = LibStub("LibQRCode-1.0"); a:reset();
@@ -317,15 +327,126 @@ function BitArray:appendBits(value, numBits)
 end
 
 --------------------------------------------------------------------
+local GF256Poly = {}
+local GF256Poly_MT = {__index = GF256Poly};
 
+function GF256Poly:New(field, coefficients)
+    local newObj = setmetatable({}, GF256Poly_MT);
+    if coefficients == nil then
+        error("coefficients need a table type", 2);
+    end
+
+    newObj.field = field;
+    local coefficientsLength = #coefficients
+    if (coefficientsLength > 1 and coefficients[1] == 0) then
+
+    else
+        newObj.coefficients = coefficients;
+    end
+    return newObj
+end
+
+function GF256Poly:getCoefficients()
+    return self.coefficients;
+end
+
+function GF256Poly:getDegree()
+    return #self.coefficients - 1;
+end
+
+function GF256Poly:isZero()
+    return (self.coefficients[1] == 0);
+end
+
+function GF256Poly:getCoefficient(degree)
+    return self.coefficients[#self.coefficients  - degree]
+end
+
+function GF256Poly:evaluateAt(a)
+    if (a == 0) then
+        return self:getCoefficient(0)
+    end
+    local size = #self.coefficients;
+    if (a == 1) then
+        local result = 0;
+    end
+end
+
+function GF256Poly:multiply(other)
+    if (self.field ~= other.field) then
+        error("GF256Polys do not have same GF256 field", 2);
+    end
+    if (self:isZero() or other:isZero()) then
+        return self.field:getZero();
+    end
+    local aCoefficients = self.coefficients;
+    local aLength = #aCoefficients;
+
+    local bCoefficients = other.coefficients;
+    local bLength = #bCoefficients;
+
+    local product = {};
+    for i = 1, aLength, 1 do
+        local aCoeff = aCoefficients[i];
+        for j = 1, bLength, 1 do
+            if (product[i + j] == nil) then product[i + j] = 0 end
+            product[i + j] = GF256:addOrSubtract(product[i+j], self.field:multiply(aCoeff, bCoefficients[j]));
+        end
+    end
+    return GF256Poly:New(self.field, product);
+end
+--------------------------------------------------------------------
 function GF256:New(primitive)
     local newObj = setmetatable({}, GF256_MT);
+    
+    newObj.expTable = {};
+    newObj.logTable = {};
+    local x = 1;
+   
+    for i = 0, 254 do
+        newObj.expTable[i] = x
+        x = bit.lshift(x, 1);
+        if (x >= 0x100) then
+            x = bit.bxor(primitive);
+        end
+    end
+
+    for i, v in pairs(newObj.expTable) do
+        newObj.logTable[v] = i;
+    end
+
+    newObj.zero = GF256Poly:New(newObj, {0});
+    newObj.one = GF256Poly:New(newObj, {1});
+    
     return newObj;
+end
+
+function GF256:getZero()
+    return self.zero;
+end
+
+function GF256:getOne()
+    return self.one;
+end
+
+function GF256:addOrSubtract(a, b)
+    return a^b
+end
+
+function GF256:multiply(a, b)
+    if a == 0 or b == 0 then
+        return 0
+    end
+    local logSum = self.logTable[a] + self.logTable[b]
+    return self.expTable[ bit.band(logSum, 0xFF) + bit.arshift(logSum, 8)]
+end
+
+function GF256:exp(a)
+    return self.expTable[a]
 end
 
 do
     GF256.QR_CODE_FIELD = GF256:New(0x011D);-- x^8 + x^4 + x^ 4 + x^2 + x^1
-
 end
 
 ---------------------------------------------------
@@ -334,9 +455,47 @@ end
 
 function ReedSolomonEncode:New(field)
     local newObj = setmetatable({}, ReedSolomonEncode_MT);
-    newObj.field = field;
     
+    if (field ~= GF256.QR_CODE_FIELD) then
+        error("Only QR Code is supperted at this time", 2);
+    end
+
+    newObj.field = field;
+    newObj.cachedGenerators = {};
+    tinsert(newObj.cachedGenerators, GF256Poly:New(field, {1}));
+    return newObj;    
 end
+
+function ReedSolomonEncode:builderGenerator(degree)
+    if degree >= #self.cachedGenerators then
+        local lastGenerator = self.cachedGenerators[#self.cachedGenerators];
+        for d = #self.cachedGenerators, degree, 1 do
+          local nextGenerator = lastGenerator:multiply(GF256Poly:New(self.field, {1, self.field:exp(d - 1)}));
+          tinsert(self.cachedGenerators, nextGenerator);
+          lastGenerator = nextGenerator;
+        end
+    end
+end
+
+function ReedSolomonEncode:encode(toEncode, ecBytes)
+    if ecBytes == 0 then
+        error("No error correction bytes", 2)
+    end
+
+    local dataBytes = #toEncode - ecBytes;
+    
+    if dataBytes <= 0 then
+        error("No data bytes provided.", 2)
+    end
+    local generator = self:builderGenerator(ecBytes);
+    local infoCoefficients = {};
+    copyTable(toEncode, infoCoefficients);
+    local info = GF256Poly:New(self.field, infoCoefficients);
+    --@TODO: need develop
+    --info = info:multiplyByMonomial(ecBytes, 1);
+    print(info)
+end
+
 
 ---------------------------------------------------
 -- Error Correction 
@@ -797,15 +956,18 @@ function Encode:New(contents, ecLevel, hints, qrcode)
         --@TODO: donothing now.
     end
     newObj:appendModeInfo(mode, headerAndDataBits)
-    local numLetters = mode == Mode.BYTE and dataBits:getSizeInBytes() or string.len(contents);
+    local numLetters = (mode == Mode.BYTE) and dataBits:getSizeInBytes() or string.len(contents);
     newObj:appendLengthInfo(numLetters, qrcode:GetVersion(), mode, headerAndDataBits);
     -- setup 5: terminate the bits properly
     newObj:terminateBits(qrcode:GetNumDataBytes(), headerAndDataBits);
     -- setup 6: interleave data bits with error correction code;
+    -- 9.29  i'm debugging this stuff.  It need GF256, ReedSolomonEncode for rsblocks.
+    -- if mode == BYTE, i see, it will need ECI class;
     local finalBits = BitArray:New();
     --@TODO: need GF256, ReedSolomonEncoder
-    --newObj:interLeaveWithECBytes(headerAndDataBits, qrcode:GetNumTotalBytes(), qrcode:GetNumDataBytes(), qrcode:GetNumRSBlocks(), finalBits);
-
+    newObj:interLeaveWithECBytes(headerAndDataBits, qrcode:GetNumTotalBytes(), qrcode:GetNumDataBytes(), qrcode:GetNumRSBlocks(), finalBits);
+    
+    --[[
     -- setup 7: choose the mask pattern and set to "qrCode"
     local matrix = bMatrix:New(qrcode:GetMatrixWidth(), qrcode:GetMatrixWidth()); 
     qrcode:SetMaskPattern(newObj:chooseMaskPattern(finalBits, qrcode:GetECLevel(), qrcode:GetVersion(), matrix));
@@ -817,6 +979,7 @@ function Encode:New(contents, ecLevel, hints, qrcode)
     --    error("Invaild QR Code.", 2)
     --end 
     newObj.qrcode = qrcode;
+    ]]
     return newObj
 end
 
@@ -972,16 +1135,16 @@ function Encode:interLeaveWithECBytes(bits, numTotalBytes, numDataBytes, numRSBl
     local dataBytesOffset, maxNumDataBytes, maxNumEcBytes = 0, 0, 0;
 
     --since, we know the number of reedsolmon blocks. we can initialize the vector with the number
-
+    
+    --@TODO: blocks is vector type.
     local blocks = {};
+
     for i = 0, numRSBlocks - 1, 1 do
         local numDataBytesInBlock, numEcBytesInBlock = {}, {};
         self:getNumDataBytesAndNumECBytesForBlockID(numTotalBytes, numDataBytes, numRSBlocks, i, numDataBytesInBlock, numEcBytesInBlock);
         local size = numDataBytesInBlock[1];
-        
         dataBytes = {};
         bits:toBytes(8 * dataBytesOffset, dataBytes, 0, size )
-    
         ecBytes = self:generateECBytes(dataBytes, numEcBytesInBlock[1]);
 
         maxNumDataBytes = math.max(maxNumDataBytes, size);
@@ -996,6 +1159,9 @@ function Encode:generateECBytes(dataBytes, numEcBytesInBlock)
     for i = 1, numDataBytes do
         toEncode[i] = bit.band(dataBytes[i], 0xFF);
     end
+
+    local RSEncoder = ReedSolomonEncode:New(GF256.QR_CODE_FIELD);
+    RSEncoder:encode(toEncode, numEcBytesInBlock);
 end
 
 --- Get number of data bytes and number of error correction bytes for block id "blockID".
