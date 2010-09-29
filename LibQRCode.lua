@@ -765,6 +765,13 @@ MatrixUtil.VERSION_INFO_POLY = 0x1f25 -- 1 111 1 0100 0101
 --From Appendix C in JISX0510:2004 (p.65).
 MatrixUtil.TYPE_INFO_POLY = 0x537;
 MatrixUtil.TYPE_INFO_MASK_PATTERN = 0x5412;
+
+function MatrixUtil:clearMatrix(matrix)
+    matrix:clear(-1)
+end
+
+function MatrixUtil:buildMatrix(dataBits, ecLevel, version, maskPattern, matrix)
+end
 --------------------------------------------------------
 -- Encode method class
 --------------------------------------------------------
@@ -803,7 +810,13 @@ function Encode:New(contents, ecLevel, hints, qrcode)
     local matrix = bMatrix:New(qrcode:GetMatrixWidth(), qrcode:GetMatrixWidth()); 
     qrcode:SetMaskPattern(newObj:chooseMaskPattern(finalBits, qrcode:GetECLevel(), qrcode:GetVersion(), matrix));
     -- setup 8 build the matrix and set it to qrcode
+    MatrixUtil:buildMatrix(finalBits, qrcode:GetECLevel(), qrcode:GetVersion(), qrcode:GetMaskPattern(), matrix)
+    qrcode:SetMatrix(matrix);
     -- setup 9: make sure we have a vaild qrcode
+    --if (not qrcode:isVaild()) then
+    --    error("Invaild QR Code.", 2)
+    --end 
+    newObj.qrcode = qrcode;
     return newObj
 end
 
