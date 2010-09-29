@@ -115,7 +115,7 @@ function QRCode:GetECLevel()
 end
 
 ---set error correction level of the QRCode
-function QRCode:SetSCLevel(value)
+function QRCode:SetECLevel(value)
     self.ecLevel = value;
 end
 
@@ -230,10 +230,19 @@ end
 ---------------------------------------------------
 -- BitArray
 ---------------------------------------------------
+
+local function makeArray(size)
+    local tmp = {}
+    for i = 0, size do
+        tmp[i] = 0; 
+    end
+    return tmp
+end
+
 function BitArray:New(size)
     local newObj = setmetatable({}, BitArray_MT);
     newObj.size = size or 0;
-    newObj.bits = {}
+    newObj.bits = makeArray(size or 0) 
     return newObj
 end
 
@@ -241,20 +250,36 @@ function BitArray:getSize()
     return self.size;
 end
 
+function BitArray:getSizeInBytes()
+    return bit.rshift(self.size + 7, 3);
+end
+
+function BitArray:get(i)
+end
+
 function BitArray:AppendBit(b)
+    self:ensureCapacity(self.size + 1);
     if (b) then
-        print(self.size)
-        print(bit.rshift(self.size, 5))
+       self.bits[bit.rshift(self.size, 5)] = bit.bor(self.bits[bit.rshift(self.size, 5)], (bit.lshift(1, bit.band(self.size, 0x1F)))); 
     end
     self.size = self.size + 1;
+end
+
+function BitArray:ensureCapacity(size)
+    if ( size > bit.lshift(select('#', self.bits), 5)) then
+        print(111)
+    end
 end
 
 function BitArray:appendBits(value, numBits)
     if numBits < 0 or numBits > 32 then
         error("num bits must be between 0 and 32", 2);
     end
-    for numBitsLeft = numBits, 0, -1  do
-        self:AppendBit((bit.band(bit.rshift(value, (numBitsLeft - 1)), 0x01)) == 1)
+
+    self:ensureCapacity(self.size + numBits);
+
+    for numBitsLeft = numBits, 1, -1  do
+       self:AppendBit((bit.band(bit.rshift(value, (numBitsLeft - 1)), 0x01)) == 1)
     end
 end
 
@@ -268,9 +293,10 @@ function ErrorCorrectionLevel:New(ordinal, bits, name)
     newObj.ordinal = ordinal;
     newObj.bits = bits;
     newObj.name = name;
+    return newObj
 end
 
-function ErrorCorrectionLevel:ordinal()
+function ErrorCorrectionLevel:Ordinal()
     return self.ordinal
 end
 
@@ -291,7 +317,7 @@ do
     local Q = ErrorCorrectionLevel:New(2, 0x02, "Q")
     -- H ~= 30%
     local H = ErrorCorrectionLevel:New(3, 0x03, "H")
-    ECList = {L, M, Q, H}
+    ECList = { ["L"]= L, ["M"] = M, ["Q"] = Q, ["H"] = H }
     ErrorCorrectionLevel.ECList = ECList;
 end
 -----------------------------------------------
@@ -331,7 +357,7 @@ end
 function ECBlocks:getNumBlocks()
     local total = 0;
     for i = 1, #self.ecBlocks do
-        total = total + ecBlocks[i]:getCount();
+        total = total + self.ecBlocks[i]:getCount();
     end
     return total
 end
@@ -380,7 +406,7 @@ function Version:getDimensionForVersion()
 end
 
 function Version:getECBlocksForLevel(ecLevel)
-    return self.ecBlocks[ecLevel:ordinal()]
+    return self.ecBlocks[ecLevel:Ordinal() + 1]
 end
 
 --- Deduce version information purely for the QRCode dimensions.
@@ -584,7 +610,7 @@ end
 --------------------------------------------------------
 -- Encode method class
 --------------------------------------------------------
-function Encode:New(contents, hints, qrcode)
+function Encode:New(contents, ecLevel, hints, qrcode)
     local newObj = setmetatable({}, Encode_MT);
     local encoding = "";
     if hints == nil then
@@ -597,7 +623,8 @@ function Encode:New(contents, hints, qrcode)
     local dataBits = BitArray:New();
     newObj:appendBytes(contents, mode, dataBits, encoding);
     -- setup 3: initialize QRCode that can contain "dataBites"
-
+    local numInputsBytes = dataBits:getSizeInBytes();
+    newObj:initQRCode(numInputsBytes, ecLevel, mode, qrcode);
     -- setup 4: build another bit vector that contains header and data
 
     -- setup 4.5: append ECI message if applicale
@@ -609,23 +636,28 @@ function Encode:New(contents, hints, qrcode)
     return newObj
 end
 
+--- getAlphanumericCode 
+-- @return the code point of the table used in alphanumeric mode
+-- or -1 if there is no corresponding code in the table
+function Encode:getAlphanumericCode(c)
+    local code = string.byte(c);
+    if code <= #ALPHANUMERIC_TABLE then
+        return (ALPHANUMERIC_TABLE[code + 1])
+    end
+    return -1;
+end
+
 --- @TODO: only NUMERIC
 function Encode:chooseMode(contents, encoding)
     --test is always byte
     local hasNumeric = false;
     local hasAlphanumeric = false;
-    local charArray = {}
-    local currentIndex = 1;
-    while (currentIndex <= #contents) do
-        local char = string.byte(contents, currentIndex);
-        table.insert(charArray, char);
-        currentIndex = currentIndex + 1;
-    end
-
-    for i = 1, #charArray do
-        local c = charArray[i];
-        if (c >= string.byte(0) and c <= string.byte(9)) then
+    for i = 1, #contents do
+        local c = string.sub(contents, i, i);
+        if (c >= '0' and c <= '9') then
             hasNumeric = true;
+        elseif self:getAlphanumericCode(c) ~= -1 then
+            hasAlphanumeric = true;
         else
             return Mode.BYTE;
         end
@@ -636,6 +668,7 @@ function Encode:chooseMode(contents, encoding)
     elseif hasNumeric then
         return Mode.NUMERIC;
     end
+
     return Mode.BYTE;
 end
 
@@ -644,6 +677,8 @@ function Encode:appendBytes(content, mode, bits, encoding)
     if modeName == "NUMERIC" then
         self:appendNumericBytes(content, bits)
     elseif modeName == "ALPHANUMERIC" then
+
+    elseif modeName == "BYTE" then
 
     end
 end
@@ -659,8 +694,37 @@ function Encode:appendNumericBytes(content, bits)
             local num3 = string.sub(content, i + 3, i + 3);
             bits:appendBits(num1 * 100 + num2 * 10 + num3 , 10);
             i = i + 3;
+        elseif (i + 1 < len) then
+            local num2 = string.sub(content, i + 2, i +2);
+            i = i + 2;
+        else
+          i = i + 1;
         end
-        i = i + 1
+    end
+end
+
+function Encode:initQRCode(numInputsBytes, ecLevel, mode, qrcode)
+    qrcode:SetECLevel(ecLevel);
+    qrcode:SetMode(mode);
+
+    for versionNum = 1, 10 do
+        local version = Version:getVersionForNumber(versionNum) 
+        local numBytes = version:getTotalCodewords();
+        local ecBlocks = version:getECBlocksForLevel(ecLevel);
+        local numECBytes = ecBlocks:getTotalECCodewords();
+        local numRSBlocks = ecBlocks:getNumBlocks();
+
+        local numDataBytes = numBytes - numECBytes;
+
+        if (numDataBytes >= (numInputsBytes + 3)) then
+            qrcode:SetVersion(versionNum);
+            qrcode:SetNumTotalBytes(numBytes);
+            qrcode:SetNumDataBytes(numDataBytes);
+            qrcode:SetNumRSBlocks(numRSBlocks);
+            qrcode:SetNumECBytes(numECBytes);
+            qrcode:SetMatrixWidth(version:getDimensionForVersion());
+            return;
+        end 
     end
 end
 
