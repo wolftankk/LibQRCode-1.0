@@ -10,6 +10,7 @@ License: Apache 2.0 License
 --debug
 strmatch = string.match;
 strlen = string.len;
+tinsert = table.insert;
 if (dofile) then
     dofile([[/home/workspace/LibStub/LibStub.lua]]);
 end
@@ -65,6 +66,10 @@ local bMatrix_MT = {__index = bMatrix};
 --@class QRCodeWriter
 local QRCodeWriter = {}
 local QRCodeWriter_MT = {__index = QRCodeWriter}
+
+local ReedSolomonEncode = {}
+local ReedSolomonEncode_MT = { __index = ReedSolomonEncode}
+
 -- constant
 --------------------------------------------------------------------------------------
 ---the original table is defined in the table 5 of JISX0510:2004 (p19)
@@ -255,7 +260,22 @@ function BitArray:getSizeInBytes()
     return bit.rshift(self.size + 7, 3);
 end
 
-function BitArray:get(i)
+function BitArray:get(b)
+    return (bit.band(self.bits[bit.rshift(b, 5)], bit.lshift(1, bit.band(b, 0x1F))) ~= 0)
+end
+
+function BitArray:toBytes(bitOffset, array, offset, numBytes)
+    for i = 0, numBytes - 1, 1 do
+        local theByte = 0;
+
+        for j =0, 7 do
+            if (self:get(bitOffset)) then
+                theByte = bit.bor(theByte, (bit.lshift(1, 7 - j)))
+            end
+            bitOffset = bitOffset + 1;
+        end
+        array[offset + i] = theByte
+    end
 end
 
 function BitArray:appendBit(b)
@@ -285,6 +305,33 @@ function BitArray:appendBits(value, numBits)
     for numBitsLeft = numBits, 1, -1  do
        self:appendBit((bit.band(bit.rshift(value, (numBitsLeft - 1)), 0x01)) == 1)
     end
+end
+
+--------------------------------------------------------------------
+local Vector = {}
+local Vector_MT = { __index = Vector }
+
+local GF256 = {}
+local GF256_MT = { __index = Get256 }
+
+function GF256:New(primitive)
+    local newObj = setmetatable({}, GF256_MT);
+    return newObj;
+end
+
+do
+    GF256.QR_CODE_FIELD = GF256:New(0x011D);-- x^8 + x^4 + x^ 4 + x^2 + x^1
+
+end
+
+---------------------------------------------------
+-- ReedSolomonEncode
+---------------------------------------------------
+
+function ReedSolomonEncode:New(field)
+    local newObj = setmetatable({}, ReedSolomonEncode_MT);
+    newObj.field = field;
+    
 end
 
 ---------------------------------------------------
@@ -782,8 +829,83 @@ function Encode:terminateBits(numDataBytes, bits)
     end
 end
 
-function Encode:interLeaveWithECBytes()
+--- Interleave bits with corresponding error correction bytes.
+-- On success, store the result in "result", The interleavel rule is
+-- complicated. see 8.6 of JISX0510:2004 p 37 for details
+function Encode:interLeaveWithECBytes(bits, numTotalBytes, numDataBytes, numRSBlocks, result)
+    if (bits:getSizeInBytes() ~= numDataBytes) then
+        error("Number of bits and data bytes does not match", 2);
+    end
 
+    local dataBytesOffset, maxNumDataBytes, maxNumEcBytes = 0, 0, 0;
+
+    --since, we know the number of reedsolmon blocks. we can initialize the vector with the number
+
+    local blocks = {};
+    for i = 0, numRSBlocks - 1, 1 do
+        local numDataBytesInBlock, numEcBytesInBlock = {}, {};
+        self:getNumDataBytesAndNumECBytesForBlockID(numTotalBytes, numDataBytes, numRSBlocks, i, numDataBytesInBlock, numEcBytesInBlock);
+        local size = numDataBytesInBlock[1];
+        
+        dataBytes = {};
+        bits:toBytes(8 * dataBytesOffset, dataBytes, 0, size )
+    
+        ecBytes = self:generateECBytes(dataBytes, numEcBytesInBlock[1]);
+
+        maxNumDataBytes = math.max(maxNumDataBytes, size);
+        --maxNumEcBytes = math.max(maxNumEcBytes, );
+        dataBytesOffset = dataBytesOffset + numDataBytesInBlock[1]
+    end
+end
+
+function Encode:generateECBytes(dataBytes, numEcBytesInBlock)
+    local numDataBytes = #dataBytes
+    local toEncode = {};
+    for i = 1, numDataBytes do
+        toEncode[i] = bit.band(dataBytes[i], 0xFF);
+    end
+end
+
+--- Get number of data bytes and number of error correction bytes for block id "blockID".
+-- Store the result in "numDataBytesInBlock", and "numECBytesInBlocks".
+-- see table 12 in 8.5.1 of JISX0510:2004 (p.30)
+function Encode:getNumDataBytesAndNumECBytesForBlockID(numTotalBytes, numDataBytes, numRSBlocks, blockID, numDataBytesInBlock, numEcBytesInBlock)
+    if (blockID >= numRSBlocks) then
+        error("Block ID too large", 2);
+    end
+
+    local numRSBlocksInGroup2 = numTotalBytes % numRSBlocks;
+    local numRSBlocksInGroup1 = numRSBlocks - numRSBlocksInGroup2;
+
+    local numTotalBytesInGroup1 = numTotalBytes / numRSBlocks;
+    local numTotalBytesInGroup2 = numTotalBytesInGroup1 + 1;
+
+    local numDataBytesInGroup1 = numDataBytes / numRSBlocks;
+    local numDataBytesInGroup2 = numDataBytesInGroup1 + 1;
+
+    local numEcBytesInGroup1 = numTotalBytesInGroup1 - numDataBytesInGroup1;
+    local numEcBytesInGroup2 = numTotalBytesInGroup2 - numDataBytesInGroup2;
+
+    --sanity checks
+    if (numEcBytesInGroup1 ~= numEcBytesInGroup2) then
+        error("EC bytes mismatch", 2)
+    end
+
+    if (numRSBlocks ~= numRSBlocksInGroup1 + numRSBlocksInGroup2) then
+        error("RS blocks mismatch", 2);
+    end
+
+    if (numTotalBytes ~= ((numDataBytesInGroup1 + numEcBytesInGroup1) * numRSBlocksInGroup1) + ( (numDataBytesInGroup2 + numEcBytesInGroup2) * numRSBlocksInGroup2)) then
+        error("Total bytes mismatch", 2);
+    end
+    
+    if (blockID < numRSBlocksInGroup1) then
+        numDataBytesInBlock[1] = numDataBytesInGroup1;
+        numEcBytesInBlock[1] = numEcBytesInGroup1;
+    else
+        numDataBytesInBlock[1] = numDataBytesInGroup2;
+        numEcBytesInBlock[1] = numEcBytesInGroup2;
+    end
 end
 
 --------------------------------------------------------
