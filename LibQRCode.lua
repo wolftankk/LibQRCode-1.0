@@ -20,7 +20,7 @@ end
 
 local MAJOR_VERSION = "LibQRCode-1.0";
 local MINOR_VERSION = tonumber(("$Rev$"):match("(%d+)")) or 1000
-if not LibStub then error(MAJOR_VERSION.." require LibStub") end
+if not LibStub then error(MAJOR_VERSION.." require LibStub", 2) end
 local lib, oldLib = LibStub:NewLibrary(MAJOR_VERSION, MINOR_VERSION);
 if not lib then 
     return
@@ -970,7 +970,9 @@ function MatrixUtil:buildMatrix(dataBits, ecLevel, version, maskPattern, matrix)
 
     --embeds base patterns
     self:embedBasicPatterns(version, matrix);
-    
+    --type infomation appear with any version
+	--self:embedTypeInfo(ecLevel, maskPattern, matrix);
+
 end
 
 --- Embed basic patterns. On success, modify  the matrix and return true
@@ -982,6 +984,26 @@ function MatrixUtil:embedBasicPatterns(version, matrix)
     --first
     -- lets get started with embedding big squares at corners
     self:embedPositionDetectionPatternAndSquarators(matrix);
+	--then, embed the dark dot at the left bottom corner
+	self:embedDarkDotAtLeftBottomConer(matrix);
+	
+	self:embedTimingPatterns(matrix)
+end
+
+function MatrixUtil:embedTimingPatterns(matrix)
+	for i = 8, matrix:getWidth() - 7, 1 do
+		local b = (i + 1) % 2;
+		if (matrix:get(i + 1, 7) == -1) then
+			matrix:set(i + 1, 7, b);
+		end
+		if (matrix:get(7, i + 1) == -1) then
+			matrix:set(7, i + 1, b);
+		end
+	end
+end
+
+function MatrixUtil:embedDarkDotAtLeftBottomConer(matrix)
+	matrix:set(8 + 1, matrix:getHeight() - 8 + 1, 1);
 end
 
 function MatrixUtil:embedPositionDetectionPattern(xStart, yStart, matrix)
@@ -990,6 +1012,21 @@ function MatrixUtil:embedPositionDetectionPattern(xStart, yStart, matrix)
             matrix:set(xStart + x, yStart + y, self.POSITION_DETECTION_PATTERN[y][x])
         end
     end
+end
+
+function MatrixUtil:embedHorizontalSeparationPattern(xStart, yStart, matrix)
+    if #self.HORIZONTAL_SEPARATION_PATTERN[1] ~= 8 or #self.HORIZONTAL_SEPARATION_PATTERN ~= 1 then
+      error("bad horizontal separation pattern", 2);
+    end
+    for x = 1, 8 do
+        matrix:set(xStart + x, yStart, self.HORIZONTAL_SEPARATION_PATTERN[1][x]);
+    end
+end
+
+function MatrixUtil:embedVerticalSeparationPattern(xStart, yStart, matrix)
+	for y = 1, 7 do
+		matrix:set(xStart, yStart+y, self.VERTICAL_SEPARATION_PATTERN[y][1]);
+	end
 end
 
 function MatrixUtil:embedPositionDetectionPatternAndSquarators(matrix)
@@ -1004,8 +1041,21 @@ function MatrixUtil:embedPositionDetectionPatternAndSquarators(matrix)
 
     local hspWidth = #self.HORIZONTAL_SEPARATION_PATTERN[1]
     --left top corner
+    self:embedHorizontalSeparationPattern(0, hspWidth, matrix); 
 
+    --right top corner
+    self:embedHorizontalSeparationPattern(matrix:getWidth() - hspWidth, hspWidth, matrix);
 
+    --left bottom corner
+    self:embedHorizontalSeparationPattern(0, matrix:getWidth() - hspWidth + 1, matrix);
+
+    local vspSize = #self.VERTICAL_SEPARATION_PATTERN;
+    --left
+	self:embedVerticalSeparationPattern(vspSize, 0, matrix);     
+    --right
+	self:embedVerticalSeparationPattern(matrix:getWidth() - vspSize + 1, 0, matrix)
+	--left bottom
+	self:embedVerticalSeparationPattern(vspSize, matrix:getWidth() - vspSize + 1, matrix)
 end
 --------------------------------------------------------
 -- Encode method class
@@ -1304,6 +1354,7 @@ function QRCodeWriter:New(contents, width, height, hints)
     return newObj
 end
 
+local martixList = {};
 --- note that the input matrix uses 0 = white , 1 = black
 -- while the output matrix uses
 -- texture: WHITE8X8
@@ -1330,13 +1381,28 @@ function QRCodeWriter:renderResult(code, width, height)
         code.frame:SetBackdropColor(0, 0, 0);
         code.frame:SetPoint("CENTER", UIParent, "CENTER", 0, 0);
     end
+
+	--clear/hide
+	if #martixList > 0 then
+		for i, m in pairs(martixList) do
+			m:ClearAllPoints()
+			m:Hide();
+		end
+	end
     
     --0 = white 1 = black
     local matrixWidth = matrix:getWidth();
     local texWidth = width / matrixWidth - 1;--scale?
     for y = 1, matrixWidth do
         for x = 1, matrixWidth do
-            local tex = code.frame:CreateTexture(nil, "ARTWORK"); 
+			local texNum = (y - 1) * matrixWidth + x;
+			local tex
+			if martixList[texNum] then
+				tex = martixList[texNum];
+			else
+				tex = code.frame:CreateTexture(nil, "ARTWORK");
+				martixList[texNum] = tex;
+			end
             local c = matrix:get(x, y);
             tex:SetTexture([[Interface\BUTTONS\WHITE8X8]]);
             tex:SetPoint("TOPLEFT", code.frame, "TOPLEFT", x == 1 and texWidth or x * texWidth, y == 1 and -texWidth or -(y * texWidth));
@@ -1348,9 +1414,8 @@ function QRCodeWriter:renderResult(code, width, height)
             elseif c == 0 then
                 tex:SetVertexColor(1, 1, 1);
             else
-                tex:SetVertexColor(1, 1, 1);
+                tex:SetVertexColor(1, 0, 0, 0.6);
             end
-            
         end
     end
 end
