@@ -7,13 +7,15 @@ Dependency: LibStub
 Document: http://www.swetake.com/qr/qr1_en.html
 License: Apache 2.0 License
 ]]
---debug
+--for debugging.
 strmatch = string.match;
 strlen = string.len;
 tinsert = table.insert;
+local debug = true;
 if (dofile) then
     dofile([[/home/workspace/LibStub/LibStub.lua]]);
 end
+---linux Lua not have bit, I install luabit.
 if require then
      bit = require("bit")
 end
@@ -253,12 +255,12 @@ function QRCode:isVaild()
 end
 
 ---------------------------------------------------
--- BitArray
+--- BitArray
+-- This is a simple, fast array of bits, represented compactly by an array of this internally.
 ---------------------------------------------------
-
 local function makeArray(size)
     local tmp = {}
-    for i = 0, size do
+    for i = 0, bit.rshift(size + 31, 5) do
         tmp[i] = 0; 
     end
     return tmp
@@ -267,7 +269,7 @@ end
 function BitArray:New(size)
     local newObj = setmetatable({}, BitArray_MT);
     newObj.size = size or 0;
-    newObj.bits = makeArray(size or 0) 
+    newObj.bits = makeArray(size or 1) 
     return newObj
 end
 
@@ -286,7 +288,6 @@ end
 function BitArray:toBytes(bitOffset, array, offset, numBytes)
     for i = 0, numBytes - 1, 1 do
         local theByte = 0;
-
         for j =0, 7 do
             if (self:get(bitOffset)) then
                 theByte = bit.bor(theByte, (bit.lshift(1, 7 - j)))
@@ -320,7 +321,6 @@ function BitArray:appendBits(value, numBits)
         error("num bits must be between 0 and 32", 2);
     end
     self:ensureCapacity(self.size + numBits);
-
     for numBitsLeft = numBits, 1, -1  do
        self:appendBit((bit.band(bit.rshift(value, (numBitsLeft - 1)), 0x01)) == 1)
     end
@@ -515,12 +515,12 @@ function ReedSolomonEncode:encode(toEncode, ecBytes)
     if ecBytes == 0 then
         error("No error correction bytes", 2)
     end
-
     local dataBytes = #toEncode - ecBytes;
-    
     if dataBytes <= 0 then
         error("No data bytes provided.", 2)
     end
+    local temp = {}
+    --[[
     local generator = self:builderGenerator(ecBytes);
     local infoCoefficients = {};
     for i = 1, dataBytes do
@@ -530,6 +530,7 @@ function ReedSolomonEncode:encode(toEncode, ecBytes)
     local info = GF256Poly:New(self.field, infoCoefficients);
     info = info:multiplyByMonomial(ecBytes, 1);
     local remainder = info:divide(generator);
+    ]]
 end
 
 
@@ -971,7 +972,7 @@ function MatrixUtil:buildMatrix(dataBits, ecLevel, version, maskPattern, matrix)
     --embeds base patterns
     self:embedBasicPatterns(version, matrix);
     --type infomation appear with any version
-	--self:embedTypeInfo(ecLevel, maskPattern, matrix);
+    --self:embedTypeInfo(ecLevel, maskPattern, matrix);
 
 end
 
@@ -1064,17 +1065,23 @@ function Encode:New(contents, ecLevel, hints, qrcode)
     local newObj = setmetatable({}, Encode_MT);
     local encoding = "";
     if hints == nil then
-        local encoding = "utf8";
+        encoding = "utf8";
     end
-   
     --setup 1: choose the mode(encoding);
+    if debug then
+        print("setup1", contents, encoding);
+    end
     local mode = newObj:chooseMode(contents, encoding)
+    if debug then
+        print("chooseMode", mode:getName())
+    end
     --setup 2: append bytes into dataBits in approprise encoding
     local dataBits = BitArray:New();
     newObj:appendBytes(contents, mode, dataBits, encoding);
     -- setup 3: initialize QRCode that can contain "dataBites"
     local numInputsBytes = dataBits:getSizeInBytes();
     newObj:initQRCode(numInputsBytes, ecLevel, mode, qrcode);
+    
     -- setup 4: build another bit vector that contains header and data
     local headerAndDataBits = BitArray:New();
     -- setup 4.5: append ECI message if applicale
@@ -1082,17 +1089,15 @@ function Encode:New(contents, ecLevel, hints, qrcode)
         --@TODO: donothing now.
     end
     newObj:appendModeInfo(mode, headerAndDataBits)
-    local numLetters = (mode == Mode.BYTE) and dataBits:getSizeInBytes() or string.len(contents);
+    local numLetters = (mode == Mode.BYTE) and dataBits:getSizeInBytes() or #contents;
     newObj:appendLengthInfo(numLetters, qrcode:GetVersion(), mode, headerAndDataBits);
     -- setup 5: terminate the bits properly
     newObj:terminateBits(qrcode:GetNumDataBytes(), headerAndDataBits);
     -- setup 6: interleave data bits with error correction code;
-    -- 9.29  i'm debugging this stuff.  It need GF256, ReedSolomonEncode for rsblocks.
-    -- if mode == BYTE, i see, it will need ECI class;
     local finalBits = BitArray:New();
-    --@TODO: need GF256, ReedSolomonEncoder
-    --newObj:interLeaveWithECBytes(headerAndDataBits, qrcode:GetNumTotalBytes(), qrcode:GetNumDataBytes(), qrcode:GetNumRSBlocks(), finalBits);
-    
+    --@TODO: lua table fixing 
+    newObj:interLeaveWithECBytes(headerAndDataBits, qrcode:GetNumTotalBytes(), qrcode:GetNumDataBytes(), qrcode:GetNumRSBlocks(), finalBits);
+   --[[ 
     -- setup 7: choose the mask pattern and set to "qrCode"
     local matrix = bMatrix:New(qrcode:GetMatrixWidth(), qrcode:GetMatrixWidth()); 
     qrcode:SetMaskPattern(newObj:chooseMaskPattern(finalBits, qrcode:GetECLevel(), qrcode:GetVersion(), matrix));
@@ -1102,7 +1107,8 @@ function Encode:New(contents, ecLevel, hints, qrcode)
     -- setup 9: make sure we have a vaild qrcode
     --if (not qrcode:isVaild()) then
     --    error("Invaild QR Code.", 2)
-    --end 
+    --end
+    ]]
     return newObj
 end
 
@@ -1152,12 +1158,14 @@ function Encode:chooseMaskPattern(bits, ecLevel, version, matrix)
 end
 
 function Encode:appendBytes(content, mode, bits, encoding)
-    local modeName = mode:getName();
-    if modeName == "NUMERIC" then
+    if debug then
+        print("appendBytes", contents, mode, bits, encoding)
+    end
+    if mode == Mode.NUMERIC then
         self:appendNumericBytes(content, bits)
-    elseif modeName == "ALPHANUMERIC" then
+    elseif mode == Mode.ALPHANUMERIC then
 
-    elseif modeName == "BYTE" then
+    elseif mode == Mode.BYTE then
 
     end
 end
@@ -1175,9 +1183,11 @@ function Encode:appendNumericBytes(content, bits)
             i = i + 3;
         elseif (i + 1 < len) then
             local num2 = string.sub(content, i + 2, i +2);
+            bits:appendBits(num1 * 100 + num2, 7);
             i = i + 2;
         else
-          i = i + 1;
+            bits:appendBits(num1, 4)
+            i = i + 1;
         end
     end
 end
@@ -1254,14 +1264,13 @@ function Encode:interLeaveWithECBytes(bits, numTotalBytes, numDataBytes, numRSBl
     if (bits:getSizeInBytes() ~= numDataBytes) then
         error("Number of bits and data bytes does not match", 2);
     end
-
+    
+    --- Setup 1. Divide data bytes into blocks and generate error correction bytes for them
+    -- We'll store the divided data bytes blocks and error correction bytes blocks into "blocks"
     local dataBytesOffset, maxNumDataBytes, maxNumEcBytes = 0, 0, 0;
 
     --since, we know the number of reedsolmon blocks. we can initialize the vector with the number
-    
-    --@TODO: blocks is vector type.
     local blocks = {};
-
     for i = 0, numRSBlocks - 1, 1 do
         local numDataBytesInBlock, numEcBytesInBlock = {}, {};
         self:getNumDataBytesAndNumECBytesForBlockID(numTotalBytes, numDataBytes, numRSBlocks, i, numDataBytesInBlock, numEcBytesInBlock);
@@ -1269,20 +1278,19 @@ function Encode:interLeaveWithECBytes(bits, numTotalBytes, numDataBytes, numRSBl
         dataBytes = {};
         bits:toBytes(8 * dataBytesOffset, dataBytes, 0, size )
         ecBytes = self:generateECBytes(dataBytes, numEcBytesInBlock[1]);
-
-        maxNumDataBytes = math.max(maxNumDataBytes, size);
+        --maxNumDataBytes = math.max(maxNumDataBytes, size);
         --maxNumEcBytes = math.max(maxNumEcBytes, );
-        dataBytesOffset = dataBytesOffset + numDataBytesInBlock[1]
+        --dataBytesOffset = dataBytesOffset + numDataBytesInBlock[1]
     end
 end
 
 function Encode:generateECBytes(dataBytes, numEcBytesInBlock)
     local numDataBytes = #dataBytes
     local toEncode = {};
-    for i = 1, numDataBytes + numEcBytesInBlock do
+    for i = 0, (numDataBytes + numEcBytesInBlock - 1) do
         toEncode[i] = 0;
     end
-    for i = 1, numDataBytes do
+    for i = 0, numDataBytes do
         toEncode[i] = bit.band(dataBytes[i], 0xFF);
     end
     local RSEncoder = ReedSolomonEncode:New(GF256.QR_CODE_FIELD);
@@ -1350,7 +1358,7 @@ function QRCodeWriter:New(contents, width, height, hints)
     end
     local code = QRCode:New();
     Encode:New(contents, ecLevel, hints, code);
-    newObj:renderResult(code, width, height);
+    --newObj:renderResult(code, width, height);
     return newObj
 end
 
@@ -1383,26 +1391,26 @@ function QRCodeWriter:renderResult(code, width, height)
     end
 
 	--clear/hide
-	if #martixList > 0 then
-		for i, m in pairs(martixList) do
-			m:ClearAllPoints()
-			m:Hide();
-		end
+    if #martixList > 0 then
+        for i, m in pairs(martixList) do
+	    m:ClearAllPoints()
+	    m:Hide();
 	end
+    end
     
     --0 = white 1 = black
     local matrixWidth = matrix:getWidth();
     local texWidth = width / matrixWidth - 1;--scale?
     for y = 1, matrixWidth do
         for x = 1, matrixWidth do
-			local texNum = (y - 1) * matrixWidth + x;
-			local tex
-			if martixList[texNum] then
-				tex = martixList[texNum];
-			else
-				tex = code.frame:CreateTexture(nil, "ARTWORK");
-				martixList[texNum] = tex;
-			end
+            local texNum = (y - 1) * matrixWidth + x;
+	    local tex
+	    if martixList[texNum] then
+	        tex = martixList[texNum];
+	    else
+	        tex = code.frame:CreateTexture(nil, "ARTWORK");
+		martixList[texNum] = tex;
+	    end
             local c = matrix:get(x, y);
             tex:SetTexture([[Interface\BUTTONS\WHITE8X8]]);
             tex:SetPoint("TOPLEFT", code.frame, "TOPLEFT", x == 1 and texWidth or x * texWidth, y == 1 and -texWidth or -(y * texWidth));
@@ -1420,21 +1428,6 @@ function QRCodeWriter:renderResult(code, width, height)
     end
 end
 --------------------------------------------------------
-do
-  lib.QRCode = setmetatable({}, {
-    __index = QRCode_MT,
-    __newindex = function()
-        error("attemp to update a read-only table", 2);
-    end
-  })
-  lib.bMatrix = setmetatable({}, {
-    __index = bMatrix_MT,
-    __newindex = function() 
-        error("attemp to update a read-only table",2)
-    end
-  })
-end
-
 
 --final
 function lib:new()
