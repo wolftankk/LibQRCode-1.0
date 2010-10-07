@@ -7,19 +7,16 @@ Dependency: LibStub
 Document: http://www.swetake.com/qr/qr1_en.html
 License: Apache 2.0 License
 ]]
---[=[
 strmatch = string.match;
 strlen = string.len;
 tinsert = table.insert;
-local debug = true;
-if (dofile) then
+if dofile then
     dofile([[/home/workspace/LibStub/LibStub.lua]]);
 end
----linux Lua not have bit, I install luabit.
 if require then
-     bit = require("bit")
+    bit = require("bit");
 end
-]=]
+
 local MAJOR_VERSION = "LibQRCode-1.0";
 local MINOR_VERSION = tonumber(("$Rev$"):match("(%d+)")) or 1000
 if not LibStub then error(MAJOR_VERSION.." require LibStub", 2) end
@@ -35,11 +32,55 @@ if oldLib then
     end
 end
 
-local QRCode = {}
-local QRCode_MT = {__index = QRCode}
+---------------------------------------------------------------
+-----  common functions
+---------------------------------------------------------------
+local function copyTable(t1, t2)
+    for k, v in pairs(t1) do
+        if type(v) == "table" then
+            t2[k] = {}
+            copyTable(v, t2[k]);
+        end
+        t2[k] = v
+    end
+end
 
+--from ckknight
+local function combine_type(...)
+    local count = select('#', ...);
+    if count == 1 then
+        return (...)
+    elseif count == 2 then
+        return ("%s or %s"):format(...);
+    elseif count == 3 then
+        return ("%s, %s or %s"):format(...)
+    else
+        local t = {};
+        for i = 1, count - 1 do
+            t[#t+1] = (...);
+            t[#t+1] = ", "
+        end
+        t[#t+1] = "or ";
+        t[#t+1] = select(count, ...);
+        return table.concat(t)
+    end
+end
+
+local function check(num, argument, ...)
+    if type(num) ~= "number" then
+        error("Argument #1 to check must be a number, got %s (%s)"):format(type(num), tostring(num));
+    end
+    local argument_type = type(argument);
+    for i = 1, select('#', ...) do
+        if argument_type == (select(i, ...)) then
+            return
+        end
+        error(("Argument #%d must be a %s, got %s (%s)"):format(num, combine_type(...), argument_type, tostring(argument)), 3)
+    end
+end
+
+local QRCode = {}
 local BitArray = {}
-local BitArray_MT = { __index = BitArray }
 
 local Mode = {}
 local Mode_MT = {__index = Mode};
@@ -92,242 +133,254 @@ local VERSIONS = {};--version 1 ~ 40 container of the QRCode
 local QUITE_ZONE_SIZE = 4;
 local MAX_QRCODER_VERSIONS = 10;
 
-local function copyTable(t1, t2)
-    for k, v in pairs(t1) do
-        if type(v) == "table" then
-            t2[k] = {}
-            copyTable(v, t2[k]);
+do
+    QRCode.prototype = {
+        mode = nil,
+        ecLevel = nil,
+        version = -1,
+        matrixWidth = -1,
+        maskPattern = -1,
+        numTotalBytes = -1,
+        numDataBytes = -1,
+        numECBytes = -1,
+        numRSBlocks = -1,
+        martix = nil
+    }
+    --- Construct and return a new QRCode
+    -- @return object 
+    -- @usage QRCode:New(); 
+    function QRCode:New()
+        local newObj = setmetatable({}, {__index = QRCode.prototype});
+        return newObj
+    end
+
+    --- get mode of the QRCode
+    -- @return mode
+    function QRCode.prototype:GetMode()
+        return self.mode;
+    end
+
+    --- set mode of the QRCode
+    -- @param mode Mode obejct
+    function QRCode.prototype:SetMode(mode)
+        check(1, mode, "table"); 
+        self.mode = mode
+    end
+
+    --- get error correction level of the QRCode
+    -- @return ecLevel
+    function QRCode.prototype:GetECLevel()
+        return self.ecLevel;
+    end
+
+    --- set error correction level of the QRCode
+    -- @param value ecLevel object
+    function QRCode.prototype:SetECLevel(value)
+        check(1, value, "table")
+        self.ecLevel = value;
+    end
+
+    --- get version of the QRCode, the bigger version, the bigger size
+    -- @return Version object
+    function QRCode.prototype:GetVersion()
+        return self.version
+    end
+
+    --- set version of the QRCode
+    -- @param value Version object
+    function QRCode.prototype:SetVersion(value)
+        check(1, value, "number")
+        self.version = value;
+    end
+
+    --- get bytesMatrix width of the QRCode
+    function QRCode.prototype:GetMatrixWidth()
+        return self.matrixWidth
+    end
+
+    --- set bytesMatrix width of the QRCode
+    function QRCode.prototype:SetMatrixWidth(value)
+        check(1, value, "number");
+        self.matrixWidth = value
+    end
+
+    --- get Mask pattern of the QRCode
+    function QRCode.prototype:GetMaskPattern()
+        return self.maskPattern
+    end
+
+    --- check if "mask pattern" is vaild
+    function QRCode.prototype:isValidMaskPattern(maskPattern)
+        check(1, maskPattern, "number");
+        return (maskPattern > 0 and maskPattern < NUM_MASK_PATTERNS)
+    end
+
+    --- set mask pattern of the QRCode
+    function QRCode.prototype:SetMaskPattern(value)
+        check(1, value, "number");
+        self.maskPattern = value
+    end
+
+    --- get number of total bytes in the QRCode
+    function QRCode.prototype:GetNumTotalBytes()
+        return self.numTotalBytes;
+    end
+
+    function QRCode.prototype:SetNumTotalBytes(value)
+        check(1, value, "number");
+        self.numTotalBytes = value
+    end
+
+    --- get number of data bytes in the QRCode
+    function QRCode.prototype:GetNumDataBytes()
+        return self.numDataBytes
+    end
+
+    function QRCode.prototype:SetNumDataBytes(value)
+        check(1, value, "number");
+        self.numDataBytes = value;
+    end
+
+    --- get number of error correction in the QRCode
+    function QRCode.prototype:GetNumECBytes()
+        return self.numECBytes;
+    end
+
+    function QRCode.prototype:SetNumECBytes(value)
+        check(1, value, "number");
+        self.numECBytes = value;
+    end
+
+    --- get number of Reedsolomon blocks in the QRCode
+    function QRCode.prototype:GetNumRSBlocks()
+        return self.numRSBlocks;
+    end
+
+    function QRCode.prototype:SetNumRSBlocks(value)
+        check(1, value, "number")
+        self.numRSBlocks = value;
+    end
+
+    --- get ByteMatrix of the QRCode
+    function QRCode.prototype:GetMatrix()
+        return self.matrix;
+    end
+
+    function QRCode.prototype:SetMatrix(value)
+        check(1, value, "number")
+        self.matrix = value
+    end
+
+    --- Return the value of the module(cell) point by "x" and "y" in the matrix of the QRCode They call cells in the matrix modules.
+    -- @param x horizontal value
+    -- @param y vertical value 
+    -- @result 1 represents a black cell, and 0 represents a white cell
+    -- @usage qrcode:at(x, y)
+    function QRCode.prototype:at(x, y)
+        check(1, x, "number");
+        check(1, y, "number");
+        local value = self.matrix:get(x, y);
+        if not(value == 0 or value == 1) then
+            error("Matrix return value is bad.", 2);
         end
-        t2[k] = v
+        return value
     end
-end
 
---- Construct and return a new QRCode
--- @return object 
--- @usage QRCode:New(); 
-function QRCode:New()
-    local newObj = setmetatable({}, QRCode_MT);
-    newObj.mode = nil;
-    newObj.ecLevel = nil;
-    newObj.version = -1;
-    newObj.matrixWidth = -1;
-    newObj.maskPattern = -1;
-    newObj.numTotalBytes = -1;
-    newObj.numDataBytes = -1;
-    newObj.numECBytes = -1;
-    newObj.numRSBlocks = -1;
-    newObj.matrix = nil;
-    return newObj
-end
-
---- get mode of the QRCode
--- @return mode
-function QRCode:GetMode()
-    return self.mode;
-end
-
---- set mode of the QRCode
--- @param mode Mode obejct
-function QRCode:SetMode(mode)
-    self.mode = mode
-end
-
---- get error correction level of the QRCode
--- @return ecLevel
-function QRCode:GetECLevel()
-    return self.ecLevel;
-end
-
---- set error correction level of the QRCode
--- @param value ecLevel object
-function QRCode:SetECLevel(value)
-    self.ecLevel = value;
-end
-
---- get version of the QRCode, the bigger version, the bigger size
--- @return Version object
-function QRCode:GetVersion()
-    return self.version
-end
-
---- set version of the QRCode
--- @param value Version object
-function QRCode:SetVersion(value)
-    self.version = value;
-end
-
---- get bytesMatrix width of the QRCode
-function QRCode:GetMatrixWidth()
-    return self.matrixWidth
-end
-
---- set bytesMatrix width of the QRCode
-function QRCode:SetMatrixWidth(value)
-    self.matrixWidth = value
-end
-
---- get Mask pattern of the QRCode
-function QRCode:GetMaskPattern()
-    return self.maskPattern
-end
-
---- check if "mask pattern" is vaild
-function QRCode:isValidMaskPattern(maskPattern)
-    return (maskPattern > 0 and maskPattern < NUM_MASK_PATTERNS)
-end
-
---- set mask pattern of the QRCode
-function QRCode:SetMaskPattern(value)
-    self.maskPattern = value
-end
-
---- get number of total bytes in the QRCode
-function QRCode:GetNumTotalBytes()
-    return self.numTotalBytes;
-end
-
-function QRCode:SetNumTotalBytes(value)
-    self.numTotalBytes = value
-end
-
---- get number of data bytes in the QRCode
-function QRCode:GetNumDataBytes()
-    return self.numDataBytes
-end
-
-function QRCode:SetNumDataBytes(value)
-    self.numDataBytes = value;
-end
-
---- get number of error correction in the QRCode
-function QRCode:GetNumECBytes()
-    return self.numECBytes;
-end
-
-function QRCode:SetNumECBytes(value)
-    self.numECBytes = value;
-end
-
---- get number of Reedsolomon blocks in the QRCode
-function QRCode:GetNumRSBlocks()
-    return self.numRSBlocks;
-end
-
-function QRCode:SetNumRSBlocks(value)
-    self.numRSBlocks = value;
-end
-
---- get ByteMatrix of the QRCode
-function QRCode:GetMatrix()
-    return self.matrix;
-end
-
-function QRCode:SetMatrix(value)
-    self.matrix = value
-end
-
---- Return the value of the module(cell) point by "x" and "y" in the matrix of the QRCode They call cells in the matrix modules.
--- @param x horizontal value
--- @param y vertical value 
--- @result 1 represents a black cell, and 0 represents a white cell
--- @usage qrcode:at(x, y)
-function QRCode:at(x, y)
-    local value = self.matrix:get(x, y);
-    if not(value == 0 or value == 1) then
-        error("Matrix return value is bad.", 2);
+    --- Check all the member vars are set properly.
+    -- @return boolean. true on success, otherwise returns false
+    function QRCode.prototype:isVaild()
+        return (self.mode ~= nil and
+            self.ecLevel ~= nil and
+            self.version ~= -1 and
+            self.matrixWidth ~= -1 and
+            self.maskPattern ~= -1 and
+            self.numTotalBytes ~= -1 and
+            self.numDataBytes ~= -1 and
+            self.numECBytes ~= -1 and
+            self.numRSBlocks ~= -1 and 
+            self:isValidMaskPattern(self.maskPattern) and
+            (self.numTotalBytes == (self.numDataBytes + self.numECBytes)) and
+            self.matrix ~= nil and (self.matrixWidth == self.matrix:getWidth()) and (self.matrix:getHeight() == self.matrix:getWidth()))
     end
-    return value
-end
-
---- Check all the member vars are set properly.
--- @return boolean. true on success, otherwise returns false
-function QRCode:isVaild()
-    return (self.mode ~= nil and
-        self.ecLevel ~= nil and
-        self.version ~= -1 and
-        self.matrixWidth ~= -1 and
-        self.maskPattern ~= -1 and
-        self.numTotalBytes ~= -1 and
-        self.numDataBytes ~= -1 and
-        self.numECBytes ~= -1 and
-        self.numRSBlocks ~= -1 and 
-        self:isValidMaskPattern(self.maskPattern) and
-        (self.numTotalBytes == (self.numDataBytes + self.numECBytes)) and
-        self.matrix ~= nil and (self.matrixWidth == self.matrix:getWidth()) and (self.matrix:getHeight() == self.matrix:getWidth()))
 end
 
 ---------------------------------------------------
 -- BitArray
 -- This is a simple, fast array of bits, represented compactly by an array of this internally.
 ---------------------------------------------------
-local function makeArray(size)
-    local tmp = {}
-    for i = 0, bit.rshift(size + 31, 5) do
-        tmp[i] = 0; 
+do
+    BitArray.prototype = {};  
+    BitArray_MT = {__index = BitArray.prototype};
+
+    local function makeArray(size)
+        local tmp = {}
+        for i = 0, bit.rshift(size + 31, 5) do
+            tmp[i] = 0; 
+        end
+        return tmp
     end
-    return tmp
-end
 
-function BitArray:New(size)
-    local newObj = setmetatable({}, BitArray_MT);
-    newObj.size = size or 0;
-    newObj.bits = makeArray(size or 1) 
-    return newObj
-end
+    function BitArray:New(size)
+        check(1, size, "number", "nil");
+        local newObj = setmetatable({}, BitArray_MT);
+        newObj.size = size or 0;
+        newObj.bits = makeArray(size or 1) 
+        return newObj
+    end
 
-function BitArray:getSize()
-    return self.size;
-end
+    function BitArray.prototype:getSize()
+        return self.size;
+    end
 
-function BitArray:getSizeInBytes()
-    return bit.rshift(self.size + 7, 3);
-end
+    function BitArray.prototype:getSizeInBytes()
+        return bit.rshift(self.size + 7, 3);
+    end
 
-function BitArray:get(b)
-    return (bit.band(self.bits[bit.rshift(b, 5)], bit.lshift(1, bit.band(b, 0x1F))) ~= 0)
-end
+    function BitArray.prototype:get(b)
+        return (bit.band(self.bits[bit.rshift(b, 5)], bit.lshift(1, bit.band(b, 0x1F))) ~= 0)
+    end
 
-function BitArray:toBytes(bitOffset, array, offset, numBytes)
-    for i = 0, numBytes - 1, 1 do
-        local theByte = 0;
-        for j =0, 7 do
-            if (self:get(bitOffset)) then
-                theByte = bit.bor(theByte, (bit.lshift(1, 7 - j)))
+    function BitArray.prototype:toBytes(bitOffset, array, offset, numBytes)
+        for i = 0, numBytes - 1, 1 do
+            local theByte = 0;
+            for j =0, 7 do
+                if (self:get(bitOffset)) then
+                    theByte = bit.bor(theByte, (bit.lshift(1, 7 - j)))
+                end
+                bitOffset = bitOffset + 1;
             end
-            bitOffset = bitOffset + 1;
+            array[offset + i] = theByte
         end
-        array[offset + i] = theByte
     end
-end
 
-function BitArray:appendBit(b)
-    self:ensureCapacity(self.size + 1);
-    if (b) then
-       self.bits[bit.rshift(self.size, 5)] = bit.bor(self.bits[bit.rshift(self.size, 5)], (bit.lshift(1, bit.band(self.size, 0x1F)))); 
-    end
-    self.size = self.size + 1;
-end
-
-function BitArray:ensureCapacity(size)
-    if ( size > bit.lshift(select('#', self.bits), 5)) then
-        local newBits = makeArray(size);
-        for k,v in pairs(self.bits) do
-            newBits[k] = v;
+    function BitArray.prototype:appendBit(b)
+        self:ensureCapacity(self.size + 1);
+        if (b) then
+           self.bits[bit.rshift(self.size, 5)] = bit.bor(self.bits[bit.rshift(self.size, 5)], (bit.lshift(1, bit.band(self.size, 0x1F)))); 
         end
-        self.bits = newBits
+        self.size = self.size + 1;
+    end
+
+    function BitArray.prototype:ensureCapacity(size)
+        if ( size > bit.lshift(select('#', self.bits), 5)) then
+            local newBits = makeArray(size);
+            for k,v in pairs(self.bits) do
+                newBits[k] = v;
+            end
+            self.bits = newBits
+        end
+    end
+
+    function BitArray.prototype:appendBits(value, numBits)
+        if numBits < 0 or numBits > 32 then
+            error("num bits must be between 0 and 32", 2);
+        end
+        self:ensureCapacity(self.size + numBits);
+        for numBitsLeft = numBits, 1, -1  do
+           self:appendBit((bit.band(bit.rshift(value, (numBitsLeft - 1)), 0x01)) == 1)
+        end
     end
 end
-
-function BitArray:appendBits(value, numBits)
-    if numBits < 0 or numBits > 32 then
-        error("num bits must be between 0 and 32", 2);
-    end
-    self:ensureCapacity(self.size + numBits);
-    for numBitsLeft = numBits, 1, -1  do
-       self:appendBit((bit.band(bit.rshift(value, (numBitsLeft - 1)), 0x01)) == 1)
-    end
-end
-
 --------------------------------------------------------------------
 local GF256Poly = {}
 local GF256Poly_MT = {__index = GF256Poly};
@@ -1446,6 +1499,6 @@ end
 test code
 ]]
 do
-    lib:new();
+    --lib:new();
 	--/dump LibStub("LibQRCode-1.0"):new()
 end
