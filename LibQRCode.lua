@@ -75,8 +75,8 @@ local function check(num, argument, ...)
         if argument_type == (select(i, ...)) then
             return
         end
-        error(("Argument #%d must be a %s, got %s (%s)"):format(num, combine_type(...), argument_type, tostring(argument)), 3)
     end
+    error(("Argument #%d must be a %s, got %s (%s)"):format(num, combine_type(...), argument_type, tostring(argument)), 3)
 end
 
 local QRCode = {}
@@ -1499,6 +1499,6 @@ end
 test code
 ]]
 do
-    --lib:new();
+    lib:new();
 	--/dump LibStub("LibQRCode-1.0"):new()
 end
