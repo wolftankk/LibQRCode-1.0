@@ -35,7 +35,7 @@ if oldLib then
     end
 end
 
---- metatable list
+-- metatable list
 --@class QRCode
 local QRCode = {}
 local QRCode_MT = {__index = QRCode}
@@ -108,9 +108,10 @@ local function copyTable(t1, t2)
         t2[k] = v
     end
 end
--------------------------------------------------------------------------------------
----reset rcode params
---@usage local a = LibStub("LibQRCode-1.0"); a:reset();
+
+--- Construct and return a new QRCode
+-- @return object 
+--@usage QRCode:New(); 
 function QRCode:New()
     local newObj = setmetatable({}, QRCode_MT);
     newObj.mode = nil;
