@@ -7,7 +7,7 @@ Dependency: LibStub
 Document: http://www.swetake.com/qr/qr1_en.html
 License: Apache 2.0 License
 ]]
---for debugging.
+--[=[
 strmatch = string.match;
 strlen = string.len;
 tinsert = table.insert;
@@ -19,7 +19,7 @@ end
 if require then
      bit = require("bit")
 end
-
+]=]
 local MAJOR_VERSION = "LibQRCode-1.0";
 local MINOR_VERSION = tonumber(("$Rev$"):match("(%d+)")) or 1000
 if not LibStub then error(MAJOR_VERSION.." require LibStub", 2) end
@@ -35,45 +35,39 @@ if oldLib then
     end
 end
 
--- metatable list
---@class QRCode
 local QRCode = {}
 local QRCode_MT = {__index = QRCode}
 
 local BitArray = {}
 local BitArray_MT = { __index = BitArray }
 
---@class Mode class
 local Mode = {}
 local Mode_MT = {__index = Mode};
---@class ErrorCorrectionLevel  ecLevel
+
 local ErrorCorrectionLevel = {};
 local ErrorCorrectionLevel_MT = {__index = ErrorCorrectionLevel}
 local ECList = {};
---@class ECB
+
 local ECB = {}
 local ECB_MT = {__index = ECB};
---@class ECBlocks class
+
 local ECBlocks = {}
 local ECBlocks_MT = {__index = ECBlocks}
---@class encode
+
 local Encode = {};
 local Encode_MT = {__index = Encode};
---@class Version class
+
 local Version = {}
 local Version_MT = {__index = Version}
---@class byte matrix
+
 local bMatrix = {}
 local bMatrix_MT = {__index = bMatrix};
 
 local MatrixUtil = {}
 local MatrixUtil_MT = { __index = MatrixUtil };
---@class QRCodeWriter
+
 local QRCodeWriter = {}
 local QRCodeWriter_MT = {__index = QRCodeWriter}
-
-local Vector = {}
-local Vector_MT = { __index = Vector }
 
 local GF256 = {}
 local GF256_MT = { __index = GF256 }
@@ -82,8 +76,7 @@ local ReedSolomonEncode = {}
 local ReedSolomonEncode_MT = { __index = ReedSolomonEncode}
 
 -- constant
---------------------------------------------------------------------------------------
----the original table is defined in the table 5 of JISX0510:2004 (p19)
+--the original table is defined in the table 5 of JISX0510:2004 (p19)
 local ALPHANUMERIC_TABLE = {
     -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, --0x00-0x0f
     -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, --0x10-0x1f
@@ -111,7 +104,7 @@ end
 
 --- Construct and return a new QRCode
 -- @return object 
---@usage QRCode:New(); 
+-- @usage QRCode:New(); 
 function QRCode:New()
     local newObj = setmetatable({}, QRCode_MT);
     newObj.mode = nil;
@@ -127,62 +120,68 @@ function QRCode:New()
     return newObj
 end
 
----get mode of the QRCode
+--- get mode of the QRCode
+-- @return mode
 function QRCode:GetMode()
     return self.mode;
 end
 
----set mode of the QRCode
+--- set mode of the QRCode
+-- @param mode Mode obejct
 function QRCode:SetMode(mode)
     self.mode = mode
 end
 
----get error correction level of the QRCode
+--- get error correction level of the QRCode
+-- @return ecLevel
 function QRCode:GetECLevel()
     return self.ecLevel;
 end
 
----set error correction level of the QRCode
+--- set error correction level of the QRCode
+-- @param value ecLevel object
 function QRCode:SetECLevel(value)
     self.ecLevel = value;
 end
 
----get version of the QRCode, the bigger version, the bigger size
+--- get version of the QRCode, the bigger version, the bigger size
+-- @return Version object
 function QRCode:GetVersion()
     return self.version
 end
 
----set version of the QRCode
+--- set version of the QRCode
+-- @param value Version object
 function QRCode:SetVersion(value)
     self.version = value;
 end
 
----get bytesMatrix width of the QRCode
+--- get bytesMatrix width of the QRCode
 function QRCode:GetMatrixWidth()
     return self.matrixWidth
 end
 
----set bytesMatrix width of the QRCode
+--- set bytesMatrix width of the QRCode
 function QRCode:SetMatrixWidth(value)
     self.matrixWidth = value
 end
 
----get Mask pattern of the QRCode
+--- get Mask pattern of the QRCode
 function QRCode:GetMaskPattern()
     return self.maskPattern
 end
 
----check if "mask pattern" is vaild
+--- check if "mask pattern" is vaild
 function QRCode:isValidMaskPattern(maskPattern)
     return (maskPattern > 0 and maskPattern < NUM_MASK_PATTERNS)
 end
 
----set mask pattern of the QRCode
+--- set mask pattern of the QRCode
 function QRCode:SetMaskPattern(value)
     self.maskPattern = value
 end
 
----get number of total bytes in the QRCode
+--- get number of total bytes in the QRCode
 function QRCode:GetNumTotalBytes()
     return self.numTotalBytes;
 end
@@ -191,7 +190,7 @@ function QRCode:SetNumTotalBytes(value)
     self.numTotalBytes = value
 end
 
----get number of data bytes in the QRCode
+--- get number of data bytes in the QRCode
 function QRCode:GetNumDataBytes()
     return self.numDataBytes
 end
@@ -200,7 +199,7 @@ function QRCode:SetNumDataBytes(value)
     self.numDataBytes = value;
 end
 
----get number of error correction in the QRCode
+--- get number of error correction in the QRCode
 function QRCode:GetNumECBytes()
     return self.numECBytes;
 end
@@ -209,7 +208,7 @@ function QRCode:SetNumECBytes(value)
     self.numECBytes = value;
 end
 
----get number of Reedsolomon blocks in the QRCode
+--- get number of Reedsolomon blocks in the QRCode
 function QRCode:GetNumRSBlocks()
     return self.numRSBlocks;
 end
@@ -218,7 +217,7 @@ function QRCode:SetNumRSBlocks(value)
     self.numRSBlocks = value;
 end
 
----get ByteMatrix of the QRCode
+--- get ByteMatrix of the QRCode
 function QRCode:GetMatrix()
     return self.matrix;
 end
@@ -227,9 +226,11 @@ function QRCode:SetMatrix(value)
     self.matrix = value
 end
 
---- Return the value of the module(cell) point by "x" and "y" in the matrix of the QRCode
--- They call cells in the matrix modules.
--- @result number  1 represents a black cell, and 0 represents a white cell
+--- Return the value of the module(cell) point by "x" and "y" in the matrix of the QRCode They call cells in the matrix modules.
+-- @param x horizontal value
+-- @param y vertical value 
+-- @result 1 represents a black cell, and 0 represents a white cell
+-- @usage qrcode:at(x, y)
 function QRCode:at(x, y)
     local value = self.matrix:get(x, y);
     if not(value == 0 or value == 1) then
@@ -239,7 +240,7 @@ function QRCode:at(x, y)
 end
 
 --- Check all the member vars are set properly.
--- @resume boolean. true on success, otherwise returns false
+-- @return boolean. true on success, otherwise returns false
 function QRCode:isVaild()
     return (self.mode ~= nil and
         self.ecLevel ~= nil and
@@ -256,7 +257,7 @@ function QRCode:isVaild()
 end
 
 ---------------------------------------------------
---- BitArray
+-- BitArray
 -- This is a simple, fast array of bits, represented compactly by an array of this internally.
 ---------------------------------------------------
 local function makeArray(size)
@@ -770,9 +771,9 @@ function Mode:forBits(bits)
 end
 
 --- get character count bit for versions
+--  the count of characters that will follow encoded in this
 -- @param version  version in question
 -- @return  number of bits used, in this QRCode symbol. to encode
---  the count of characters that will follow encoded in this
 function Mode:getCharacterCountBits(version)
     if self.characterCountBitsForVersions == nil then
         error("LibQRCode-1.0: Character count doesnt apply to this mode.");
@@ -813,8 +814,11 @@ end
 ------------------------------------------------
 -- byte matrix class method
 ------------------------------------------------
---- init bytes matrix.
+--- Construct and return a new bMatrix object 
 -- bytes is 2meta table. save y-x value 
+-- @param width value
+-- @param height value
+-- @usage bMatrix:New(21, 21)
 function bMatrix:New(width, height)
     local newObj = setmetatable({}, bMatrix_MT);
     newObj.width = width;
@@ -937,7 +941,7 @@ MatrixUtil.POSITION_ADJUSTMENT_PATTERN_COORDINATE_TABLE = {
 	{ 6, 30, 58, 86, 114, 142, 170},  -- Version 40
 }
 
---- Type info cells at the left top corner.
+-- Type info cells at the left top corner.
 MatrixUtil.TYPE_INFO_COORDINATES = {
 	{8, 0},
 	{8, 1},
@@ -982,6 +986,8 @@ end
 -- Position detection patterns
 -- Timing patterns
 -- Dark dont at the left bottom corner
+-- @param object version
+-- @param object version
 function MatrixUtil:embedBasicPatterns(version, matrix)
     --first
     -- lets get started with embedding big squares at corners
@@ -1087,7 +1093,7 @@ function Encode:New(contents, ecLevel, hints, qrcode)
     local headerAndDataBits = BitArray:New();
     -- setup 4.5: append ECI message if applicale
     if (mode == Mode.BYTE) then
-        --@TODO: donothing now.
+        --TODO: donothing now.
     end
     newObj:appendModeInfo(mode, headerAndDataBits)
     local numLetters = (mode == Mode.BYTE) and dataBits:getSizeInBytes() or #contents;
@@ -1096,7 +1102,7 @@ function Encode:New(contents, ecLevel, hints, qrcode)
     newObj:terminateBits(qrcode:GetNumDataBytes(), headerAndDataBits);
     -- setup 6: interleave data bits with error correction code;
     local finalBits = BitArray:New();
-    --@TODO: lua table fixing 
+    --TODO: lua table fixing 
     newObj:interLeaveWithECBytes(headerAndDataBits, qrcode:GetNumTotalBytes(), qrcode:GetNumDataBytes(), qrcode:GetNumRSBlocks(), finalBits);
    --[[ 
     -- setup 7: choose the mask pattern and set to "qrCode"
@@ -1124,7 +1130,7 @@ function Encode:getAlphanumericCode(c)
     return -1;
 end
 
---- @TODO: only NUMERIC
+-- TODO: only NUMERIC
 function Encode:chooseMode(contents, encoding)
     --test is always byte
     local hasNumeric = false;
@@ -1266,7 +1272,7 @@ function Encode:interLeaveWithECBytes(bits, numTotalBytes, numDataBytes, numRSBl
         error("Number of bits and data bytes does not match", 2);
     end
     
-    --- Setup 1. Divide data bytes into blocks and generate error correction bytes for them
+    -- Setup 1. Divide data bytes into blocks and generate error correction bytes for them
     -- We'll store the divided data bytes blocks and error correction bytes blocks into "blocks"
     local dataBytesOffset, maxNumDataBytes, maxNumEcBytes = 0, 0, 0;
 
