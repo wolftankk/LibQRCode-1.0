@@ -313,12 +313,15 @@ do
 
     local function makeArray(size)
         local tmp = {}
-        for i = 0, bit.rshift(size + 31, 5) do
+        --for lua
+        for i = 1, bit.rshift(size + 31, 5) + 1 do
             tmp[i] = 0; 
         end
         return tmp
     end
-
+    
+    --- Construct and return a new BitArray
+    -- @param size the bits size
     function BitArray:New(size)
         check(1, size, "number", "nil");
         local newObj = setmetatable({}, BitArray_MT);
@@ -335,25 +338,25 @@ do
         return bit.rshift(self.size + 7, 3);
     end
     
-    -- @param b bit to get
+    -- @param b bit to get first value: 0
     -- @return true if bit b is set
     function BitArray.prototype:get(b)
         check(1, b, "number")
-        return (bit.band(self.bits[bit.rshift(b, 5)], bit.lshift(1, bit.band(b, 0x1F))) ~= 0)
+        return (bit.band(self.bits[bit.rshift(b, 5) + 1], bit.lshift(1, bit.band(b, 0x1F))) ~= 0)
     end
    
     --- Sets bit b
     -- @param b bit to set
     function BitArray.prototype:set(b)
         check(1, b, "number")
-        self.bits[ bit.rshift(b, 5) ] = bit.bor( self.bits[bit.rshift(b, 5)], bit.lshift(1, bit.band(b, 0x1F)));
+        self.bits[ bit.rshift(b, 5) + 1 ] = bit.bor( self.bits[bit.rshift(b, 5) + 1], bit.lshift(1, bit.band(b, 0x1F)));
     end
 
     --- Flips bit b
     -- @param b bit to set
     function BitArray.prototype:flip(b)
         check(1, b, "number")
-        self.bits[ bit.rshift(b, 5)] = bit.bxor( self.bits[bit.rshift(b, 5)], bit.lshift(1, bit.band(b, 0x1F))); 
+        self.bits[ bit.rshift(b, 5) + 1] = bit.bxor( self.bits[bit.rshift(b, 5) + 1], bit.lshift(1, bit.band(b, 0x1F))); 
     end
 
     --- Set a block of 32 bits, starting at bit b
@@ -363,14 +366,69 @@ do
         check(1, self, "table");
         check(2, b, "number");
         check(3, newBits, "number");
-
-        self.bits[ bit.rshift(b, 5) ] = newBits;
+        
+        self.bits[ bit.rshift(b, 5) + 1 ] = newBits;
     end
+    
+    --- Clear all bits
+    function BitArray.prototype:clear()
+        local max = #self.bits;
+        for i = 1, max do
+            self.bits[i] = 0;
+        end
+    end
+        
+    --- Efficient method to check if a range of bits is setm or not set
+    -- @param start the start value of range, inclusive
+    -- @param finish  the end value of range, exclusive
+    -- @param value if true, checks that the bits in range are set, otherwise that they are not set;
+    -- @return true if all bits are set or not set in range, according to value argument
+    function BitArray.prototype:isRange(start, finish, value)
+        check(1, self, "table");
+        check(2, start, "number");
+        check(3, finish, "number");
+        check(4, value, "boolean");
 
+        if start > finish then
+            error("The end value is must be greater than the start value", 2);
+        end
+
+        if start == finish then
+            return true;
+        end
+
+        finish = finish - 1;
+        local firstInt = bit.rshift(start, 5);
+        local lastInt = bit.rshift(finish, 5);
+        local mask = 0;
+        for i = firstInt, lastInt, 1 do
+            local firstBit = i > firstInt and 0 or bit.band(start, 0x1F);
+            local lastBit = i < lastInt and 31 or bit.band(finish, 0x1F);
+            if firstBit == 0 and lastBit == 31 then
+                mask = -1
+            else
+                mask = 0;
+                for j = firstBit, lastBit do
+                    mask = bit.bor(mask, bit.lshift(1, j));
+                end
+            end
+
+            if (bit.band(self.bits[i + 1], mask) ~= (value and mask or 0)) then
+                return false
+            end
+        end
+        return true
+    end
+    
+    --- conover to bit, and writing into the array
+    -- @param bitOffset first bit ti start writing
+    -- @param array array to write into. Bytes are written most-significant bytes first.This is the opposits of the internal repressentation, which is exposed by getBitArray 
+    -- @param offset position in array to start writing
+    -- @param numBytes how many bytes to write
     function BitArray.prototype:toBytes(bitOffset, array, offset, numBytes)
-        for i = 0, numBytes - 1, 1 do
+        for i = 1, numBytes, 1 do
             local theByte = 0;
-            for j =0, 7 do
+            for j =1, 8 do
                 if (self:get(bitOffset)) then
                     theByte = bit.bor(theByte, (bit.lshift(1, 7 - j)))
                 end
@@ -380,16 +438,21 @@ do
         end
     end
 
+    function BitArray.prototype:getBitArray()
+        return self.bits;
+    end
+
     function BitArray.prototype:appendBit(b)
+        check(1, b, "number");
         self:ensureCapacity(self.size + 1);
         if (b) then
-           self.bits[bit.rshift(self.size, 5)] = bit.bor(self.bits[bit.rshift(self.size, 5)], (bit.lshift(1, bit.band(self.size, 0x1F)))); 
+           self.bits[bit.rshift(self.size, 5) + 1] = bit.bor(self.bits[bit.rshift(self.size, 5) + 1], (bit.lshift(1, bit.band(self.size, 0x1F)))); 
         end
         self.size = self.size + 1;
     end
 
     function BitArray.prototype:ensureCapacity(size)
-        if ( size > bit.lshift(select('#', self.bits), 5)) then
+        if ( size > bit.lshift(#self.bits, 5)) then
             local newBits = makeArray(size);
             for k,v in pairs(self.bits) do
                 newBits[k] = v;
@@ -397,14 +460,40 @@ do
             self.bits = newBits
         end
     end
-
+    
+    --- Appends the least-significant bits from value, in order from most-significant to least-significant.
+    -- For example, appending 6 bits from 0x000001E will append the bits 0, 1, 1, 1, 1, 0 in that order
+    -- @param number
+    -- @param numBits
     function BitArray.prototype:appendBits(value, numBits)
+        check(1, value, "number");
+        check(2, numBits, "number")
         if numBits < 0 or numBits > 32 then
             error("num bits must be between 0 and 32", 2);
         end
         self:ensureCapacity(self.size + numBits);
         for numBitsLeft = numBits, 1, -1  do
            self:appendBit((bit.band(bit.rshift(value, (numBitsLeft - 1)), 0x01)) == 1)
+        end
+    end
+    
+    function BitArray.prototype.appendBitArray(other)
+        check(1, other, "number");
+        local othersize = other:getSize();
+        self:ensureCapacity(othersize);
+        for i = 0, othersize - 1 do
+            self:appendBit(other:get(i));
+        end
+    end
+
+    --- Reverses all bits in the array
+    function BitArray.prototype.reverse()
+        local newBits = makeArray(#self.bits);
+        local size = self.size;
+        for i = 1, size do
+            if (self:get(size - i)) then
+                newBits[bit.rshift(i, 5) + 1] = bit.bor( newBits[bit.rshift(i, 5) + 1], bit.lshift(1, bit.band(i, 0x1F)));
+            end
         end
     end
 end
@@ -430,9 +519,51 @@ do
         local array = BitArray:New(64);
         array:setBulk(32, 0xFFFF0000);
 
+        for i = 0, 47 do
+            print(array:get(i), "false", i);
+        end
+
+        for i = 48, 63 do
+            print(array:get(i), "true", i);
+        end
+    end
+    
+    local function testClear()
+        local array = BitArray:New(32);
+        for i = 1, 32 do
+            array:set(i);
+        end
+        array:clear();
+        for i = 1, 32 do
+            assert(array:get(i) == false, i)
+        end
     end
 
-    test2();
+    local function testGetArray()
+        local array = BitArray:New(64);
+
+        array:set(0);
+        array:set(63);
+        local ints = array:getBitArray();
+        print(ints[1], 1)
+        print(ints[2])
+    end
+
+    local function testIsRange()
+        local array = BitArray:New(64);
+        print(array:isRange(0, 64, false), true);
+        print(array:isRange(0, 64, true), false);
+
+        array:set(32);
+        print(array:isRange(32, 33, true), true);
+        array:set(31);
+        print(array:isRange(31, 33, true), true);
+        array:set(34);
+        print(array:isRange(31, 35, true), false);
+
+        print(array:getSize())
+        print(array:getSizeInBytes())
+    end
 end
 
 
