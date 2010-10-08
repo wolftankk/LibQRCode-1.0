@@ -45,6 +45,14 @@ local function copyTable(t1, t2)
     end
 end
 
+local function new(size)
+    local t = {}
+    for i = 1, size do
+        t[i] = 0
+    end
+    return t
+end
+
 --from ckknight
 local function combine_type(...)
     local count = select('#', ...);
@@ -79,6 +87,38 @@ local function check(num, argument, ...)
     error(("Argument #%d must be a %s, got %s (%s)"):format(num, combine_type(...), argument_type, tostring(argument)), 3)
 end
 
+local function arraycopy(src, srcPos, desc, destPos, length)
+    check(1, src, "table");
+    check(2, srcPos, "number");
+    check(3, desc, "table");
+    check(4, destPos, "number");
+    check(5, length, "number");
+    local srcLength = #src; 
+    local descLength = #desc;
+        
+    if srcPos == 0 then srcPos = 1 end
+    if destPos == 0 then destPos = 1 end
+    
+    if (srcPos + length - 1) > srcLength then
+        error("srcPos + length is must be lesser than src length", 2); 
+    end
+    
+    if (destPos + length - 1) > descLength then
+        error("destPos + length is must be lesser that desc length", 2)
+    end
+
+    local start = srcPos;
+    for di = destPos, (destPos + length - 1) do
+        desc[di] = src[start];
+
+        if start == (srcPos + length - 1) then
+            return;
+        else
+            start = start + 1
+        end
+    end
+end
+
 local QRCode = {}
 local BitArray = {}
 local Mode = {}
@@ -109,10 +149,8 @@ local QRCodeWriter = {}
 local QRCodeWriter_MT = {__index = QRCodeWriter}
 
 local GF256 = {}
-local GF256_MT = { __index = GF256 }
-
-local ReedSolomonEncode = {}
-local ReedSolomonEncode_MT = { __index = ReedSolomonEncode}
+local GF256Poly = {}
+local ReedSolomonEncoder = {}
 
 -- constant
 --the original table is defined in the table 5 of JISX0510:2004 (p19)
@@ -312,12 +350,7 @@ do
     BitArray_MT = {__index = BitArray.prototype};
 
     local function makeArray(size)
-        local tmp = {}
-        --for lua
-        for i = 1, bit.rshift(size + 31, 5) + 1 do
-            tmp[i] = 0; 
-        end
-        return tmp
+        return new(bit.rshift(size + 31, 5) + 1)
     end
     
     --- Construct and return a new BitArray
@@ -326,7 +359,7 @@ do
         check(1, size, "number", "nil");
         local newObj = setmetatable({}, BitArray_MT);
         newObj.size = size or 0;
-        newObj.bits = makeArray(size or 1) 
+        newObj.bits = (size == nil) and new(1) or makeArray(size); 
         return newObj
     end
 
@@ -487,8 +520,9 @@ do
     end
 
     --- Reverses all bits in the array
+    -- TODO: need test
     function BitArray.prototype.reverse()
-        local newBits = makeArray(#self.bits);
+        local newBits = new( #self.bits );
         local size = self.size;
         for i = 1, size do
             if (self:get(size - i)) then
@@ -566,215 +600,237 @@ do
     end
 end
 
-
 --------------------------------------------------------------------
-local GF256Poly = {}
-local GF256Poly_MT = {__index = GF256Poly};
-
-function GF256Poly:New(field, coefficients)
-    local newObj = setmetatable({}, GF256Poly_MT);
-    --print(coefficients)
-    if coefficients == nili or #coefficients == 0 then
-        error("coefficients need a table type", 2);
-    end
-    newObj.field = field;
-    local coefficientsLength = #coefficients
-    if (coefficientsLength > 1 and coefficients[1] == 0) then
-        print("need develop 342 GF256Poly:New.")
-    else
-        newObj.coefficients = coefficients;
-    end
-    return newObj
-end
-
-function GF256Poly:getCoefficients()
-    return self.coefficients;
-end
-
-function GF256Poly:getDegree()
-    return #self.coefficients - 1;
-end
-
-function GF256Poly:isZero()
-    return (self.coefficients[1] == 0);
-end
-
-function GF256Poly:getCoefficient(degree)
-    return self.coefficients[#self.coefficients  - degree]
-end
-
-function GF256Poly:evaluateAt(a)
-    if (a == 0) then
-        return self:getCoefficient(0)
-    end
-    local size = #self.coefficients;
-    if (a == 1) then
-        local result = 0;
-    end
-end
-
-function GF256Poly:multiplyByMonomial(degree, coefficient)
-    if degree < 0 then
-        error("Degree must be a integer number.", 2);
-    end
-    if coefficient == 0 then
-        return self.field:getZero()
-    end
-    local size = #self.coefficients;
-    local product = {};
-    for i = 1, size do
-        product[i] = self.field:multiply(self.coefficients[i], coefficient);
-    end
-    return GF256Poly:New(self.field, product);
-end
-
-function GF256Poly:multiply(other)
-    if (self.field ~= other.field) then
-        error("GF256Polys do not have same GF256 field", 2);
-    end
-    if (self:isZero() or other:isZero()) then
-        return self.field:getZero();
-    end
-    local aCoefficients = self.coefficients;
-    local aLength = #aCoefficients;
-
-    local bCoefficients = other.coefficients;
-    local bLength = #bCoefficients;
-
-    local product = {};
-    for i = 1, aLength, 1 do
-        local aCoeff = aCoefficients[i];
-        for j = 1, bLength, 1 do
-            if (product[i + j] == nil) then product[i + j] = 0 end
-            product[i + j] = GF256:addOrSubtract(product[i+j], self.field:multiply(aCoeff, bCoefficients[j]));
-        end
-    end
-    return GF256Poly:New(self.field, product);
-end
-
-function GF256Poly:divide(other)
-    if (self.field ~= other.field) then
-        error("GF256Polys do not have same GF256 field", 2);
-    end
-    if (other:isZero()) then
-       error("Divide by 0", 2) 
-    end
-
-    local quotient = self.field:getZero();
-    local remainder = self;
-    
-    --local denominatorLeadingTerm = other:getCoefficient(other:getDegree());
-end
---------------------------------------------------------------------
-function GF256:New(primitive)
-    local newObj = setmetatable({}, GF256_MT);
-    
-    newObj.expTable = {};
-    newObj.logTable = {};
-    for i = 0, 254 do
-        newObj.expTable[i] = 0;
-        newObj.logTable[i] = 0;
-    end
-    local x = 1;
-   
-    for i = 0, 254 do
-        newObj.expTable[i] = x
-        x = bit.lshift(x, 1);
-        if (x >= 0x100) then
-            x = bit.bxor(primitive);
-        end
-    end
-
-    for i, v in pairs(newObj.expTable) do
-        newObj.logTable[v] = i;
-    end
-
-    newObj.zero = GF256Poly:New(newObj, {0});
-    newObj.one = GF256Poly:New(newObj, {1});
-    
-    return newObj;
-end
-
-function GF256:getZero()
-    return self.zero;
-end
-
-function GF256:getOne()
-    return self.one;
-end
-
-function GF256:addOrSubtract(a, b)
-    return a^b
-end
-
-function GF256:multiply(a, b)
-    if a == 0 or b == 0 then
-        return 0
-    end
-    local logSum = self.logTable[a] + self.logTable[b]
-    return self.expTable[bit.band(logSum, 0xFF) + bit.arshift(logSum, 8)]
-end
-
-function GF256:exp(a)
-    return self.expTable[a]
-end
-
 do
-    GF256.QR_CODE_FIELD = GF256:New(0x011D);-- x^8 + x^4 + x^ 4 + x^2 + x^1
-end
+    GF256Poly.prototype = {};  
+    local GF256Poly_MT = {__index = GF256Poly.prototype}
 
----------------------------------------------------
--- ReedSolomonEncode
----------------------------------------------------
+    --- Construct and return a new GF256Poly
+    -- @param field the {@link GF256} instance repressentating the field to use to perform computations
+    -- @param coefficients 
+    -- TODO: update
+    function GF256Poly:New(field, coefficients)
+        check(1, self, "table");
+        check(2, field, "table");
+        check(3, coefficients, "table");
 
-function ReedSolomonEncode:New(field)
-    local newObj = setmetatable({}, ReedSolomonEncode_MT);
-    
-    if (field ~= GF256.QR_CODE_FIELD) then
-        error("Only QR Code is supperted at this time", 2);
+        local newObj = setmetatable({}, GF256Poly_MT);
+
+        if coefficients == nil or #coefficients == 0 then
+            error("coefficients need a table type", 2);
+        end
+        newObj.field = field;
+        local coefficientsLength = #coefficients
+        if (coefficientsLength > 1 and coefficients[1] == 0) then
+            local firstNonZore = 1;
+            while (firstNonZore < coefficientsLength and coefficients[firstNonZore + 1] == 0) do
+                firstNonZore = firstNonZore + 1;
+            end
+            if firstNonZore == coefficientsLength then
+                newObj.coefficients = (field:getZero()).coefficients;
+            else
+                newObj.coefficients = {};
+            end
+        else
+            newObj.coefficients = coefficients;
+        end
+        return newObj
     end
 
-    newObj.field = field;
-    newObj.cachedGenerators = {};
-    tinsert(newObj.cachedGenerators, GF256Poly:New(field, {1}));
-    return newObj;    
-end
+    function GF256Poly.prototype:getCoefficients()
+        return self.coefficients;
+    end
 
-function ReedSolomonEncode:builderGenerator(degree)
-    if degree >= #self.cachedGenerators then
-        local lastGenerator = self.cachedGenerators[#self.cachedGenerators];
-        for d = #self.cachedGenerators, degree, 1 do
-          local nextGenerator = lastGenerator:multiply(GF256Poly:New(self.field, {1, self.field:exp(d - 1)}));
-          tinsert(self.cachedGenerators, nextGenerator);
-          lastGenerator = nextGenerator;
+    function GF256Poly.prototype:getDegree()
+        return #self.coefficients - 1;
+    end
+
+    function GF256Poly.prototype:isZero()
+        return (self.coefficients[1] == 0);
+    end
+
+    function GF256Poly.prototype:getCoefficient(degree)
+        return self.coefficients[#self.coefficients  - degree]
+    end
+
+    function GF256Poly.prototype:evaluateAt(a)
+        if (a == 0) then
+            return self:getCoefficient(0)
+        end
+        local size = #self.coefficients;
+        if (a == 1) then
+            local result = 0;
         end
     end
-    return self.cachedGenerators[degree + 1]
+
+    function GF256Poly.prototype:multiplyByMonomial(degree, coefficient)
+        if degree < 0 then
+            error("Degree must be a integer number.", 2);
+        end
+        if coefficient == 0 then
+            return self.field:getZero()
+        end
+        local size = #self.coefficients;
+        local product = {};
+        for i = 1, size do
+            product[i] = self.field:multiply(self.coefficients[i], coefficient);
+        end
+        return GF256Poly:New(self.field, product);
+    end
+
+    function GF256Poly.prototype:multiply(other)
+        if (self.field ~= other.field) then
+            error("GF256Polys do not have same GF256 field", 2);
+        end
+        if (self:isZero() or other:isZero()) then
+            return self.field:getZero();
+        end
+        local aCoefficients = self.coefficients;
+        local aLength = #aCoefficients;
+
+        local bCoefficients = other.coefficients;
+        local bLength = #bCoefficients;
+
+        local product = {};
+        for i = 1, aLength, 1 do
+            local aCoeff = aCoefficients[i];
+            for j = 1, bLength, 1 do
+                if (product[i + j] == nil) then product[i + j] = 0 end
+                product[i + j] = GF256:addOrSubtract(product[i+j], self.field:multiply(aCoeff, bCoefficients[j]));
+            end
+        end
+        return GF256Poly:New(self.field, product);
+    end
+
+    function GF256Poly.prototype:divide(other)
+        if (self.field ~= other.field) then
+            error("GF256Polys do not have same GF256 field", 2);
+        end
+        if (other:isZero()) then
+           error("Divide by 0", 2) 
+        end
+
+        local quotient = self.field:getZero();
+        local remainder = self;
+        
+        --local denominatorLeadingTerm = other:getCoefficient(other:getDegree());
+    end
 end
+--------------------------------------------------------------------
+do
+    GF256.prototype = {}
+    GF256_MT = {__index = GF256.prototype};
+    function GF256:New(primitive)
+        local newObj = setmetatable({}, GF256_MT);
+        
+        newObj.expTable = {};
+        newObj.logTable = {};
+        for i = 0, 254 do
+            newObj.expTable[i] = 0;
+            newObj.logTable[i] = 0;
+        end
+        local x = 1;
+       
+        for i = 0, 254 do
+            newObj.expTable[i] = x
+            x = bit.lshift(x, 1);
+            if (x >= 0x100) then
+                x = bit.bxor(primitive);
+            end
+        end
 
-function ReedSolomonEncode:encode(toEncode, ecBytes)
-    if ecBytes == 0 then
-        error("No error correction bytes", 2)
+        for i, v in pairs(newObj.expTable) do
+            newObj.logTable[v] = i;
+        end
+
+        newObj.zero = GF256Poly:New(newObj, {0});
+        newObj.one = GF256Poly:New(newObj, {1});
+        
+        return newObj;
     end
-    local dataBytes = #toEncode - ecBytes;
-    if dataBytes <= 0 then
-        error("No data bytes provided.", 2)
+
+    function GF256:getZero()
+        return self.zero;
     end
-    local temp = {}
-    --[[
-    local generator = self:builderGenerator(ecBytes);
-    local infoCoefficients = {};
-    for i = 1, dataBytes do
-        infoCoefficients[i] = 0;
+
+    function GF256:getOne()
+        return self.one;
     end
-    copyTable(toEncode, infoCoefficients);
-    local info = GF256Poly:New(self.field, infoCoefficients);
-    info = info:multiplyByMonomial(ecBytes, 1);
-    local remainder = info:divide(generator);
-    ]]
+
+    function GF256:addOrSubtract(a, b)
+        return a^b
+    end
+
+    function GF256:multiply(a, b)
+        if a == 0 or b == 0 then
+            return 0
+        end
+        local logSum = self.logTable[a] + self.logTable[b]
+        return self.expTable[bit.band(logSum, 0xFF) + bit.arshift(logSum, 8)]
+    end
+
+    function GF256:exp(a)
+        return self.expTable[a]
+    end
+
+    do
+        GF256.QR_CODE_FIELD = GF256:New(0x011D);-- x^8 + x^4 + x^ 4 + x^2 + x^1
+    end
 end
+---------------------------------------------------
+-- ReedSolomonEncoder
+---------------------------------------------------
+do
+    ReedSolomonEncoder.prototype = {}  
 
+    function ReedSolomonEncoder:New(field)
+        check(1, field, "table");
+        local newObj = setmetatable({}, ReedSolomonEncoder_MT);
+        
+        if (field ~= GF256.QR_CODE_FIELD) then
+            error("Only QR Code is supperted at this time", 2);
+        end
 
+        newObj.field = field;
+        newObj.cachedGenerators = setmetatable({}, {__mode = "k"});
+        tinsert(newObj.cachedGenerators, GF256Poly:New(field, {1}));
+        return newObj;    
+    end
+
+    function ReedSolomonEncoder.prototype:builderGenerator(degree)
+        if degree >= #self.cachedGenerators then
+            local lastGenerator = self.cachedGenerators[#self.cachedGenerators];
+            for d = #self.cachedGenerators, degree, 1 do
+              local nextGenerator = lastGenerator:multiply(GF256Poly:New(self.field, {1, self.field:exp(d - 1)}));
+              tinsert(self.cachedGenerators, nextGenerator);
+              lastGenerator = nextGenerator;
+            end
+        end
+        return self.cachedGenerators[degree + 1]
+    end
+
+    function ReedSolomonEncoder.prototype:encode(toEncode, ecBytes)
+        if ecBytes == 0 then
+            error("No error correction bytes", 2)
+        end
+        local dataBytes = #toEncode - ecBytes;
+        if dataBytes <= 0 then
+            error("No data bytes provided.", 2)
+        end
+        local temp = {}
+        --[[
+        local generator = self:builderGenerator(ecBytes);
+        local infoCoefficients = {};
+        for i = 1, dataBytes do
+            infoCoefficients[i] = 0;
+        end
+        copyTable(toEncode, infoCoefficients);
+        local info = GF256Poly:New(self.field, infoCoefficients);
+        info = info:multiplyByMonomial(ecBytes, 1);
+        local remainder = info:divide(generator);
+        ]]
+    end
+end
 ---------------------------------------------------
 -- Error Correction 
 ---------------------------------------------------
@@ -1543,7 +1599,7 @@ function Encode:generateECBytes(dataBytes, numEcBytesInBlock)
     for i = 0, numDataBytes do
         toEncode[i] = bit.band(dataBytes[i], 0xFF);
     end
-    local RSEncoder = ReedSolomonEncode:New(GF256.QR_CODE_FIELD);
+    local RSEncoder = ReedSolomonEncoder:New(GF256.QR_CODE_FIELD);
     RSEncoder:encode(toEncode, numEcBytesInBlock);
 end
 
