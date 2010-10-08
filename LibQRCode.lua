@@ -119,6 +119,20 @@ local function arraycopy(src, srcPos, desc, destPos, length)
     end
 end
 
+local function toByte(value)
+    if value >= -128 and value <= 127 then
+        return value
+    end
+    
+    if value > 127 then
+        return toByte(-128 + (value - 128))
+    end
+
+    if value < -128 then
+        return toByte(128 + (value + 128))
+    end
+end
+
 local QRCode = {}
 local BitArray = {}
 local Mode = {}
@@ -440,13 +454,13 @@ do
     
     --- conover to bit, and writing into the array
     -- @param bitOffset first bit ti start writing
-    -- @param array array to write into. Bytes are written most-significant bytes first.This is the opposits of the internal repressentation, which is exposed by getBitArray 
+    -- @param array array to write into. Bytes are written most-significant bytes first.This is the opposits of the internal repressentation, which is exposed by (@see getBitArray) 
     -- @param offset position in array to start writing
     -- @param numBytes how many bytes to write
     function BitArray.prototype:toBytes(bitOffset, array, offset, numBytes)
         for i = 1, numBytes, 1 do
             local theByte = 0;
-            for j =1, 8 do
+            for j = 0, 7 do
                 if (self:get(bitOffset)) then
                     theByte = bit.bor(theByte, (bit.lshift(1, 7 - j)))
                 end
@@ -461,7 +475,7 @@ do
     end
 
     function BitArray.prototype:appendBit(b)
-        check(1, b, "number");
+        check(1, b, "boolean");
         self:ensureCapacity(self.size + 1);
         if (b) then
            self.bits[bit.rshift(self.size, 5) + 1] = bit.bor(self.bits[bit.rshift(self.size, 5) + 1], (bit.lshift(1, bit.band(self.size, 0x1F)))); 
@@ -495,8 +509,8 @@ do
         end
     end
     
-    function BitArray.prototype.appendBitArray(other)
-        check(1, other, "number");
+    function BitArray.prototype:appendBitArray(other)
+        check(1, other, "table");
         local othersize = other:getSize();
         self:ensureCapacity(othersize);
         for i = 0, othersize - 1 do
@@ -600,7 +614,7 @@ do
         check(3, coefficients, "table");
 
         local newObj = setmetatable({}, GF256Poly_MT);
-
+        
         if coefficients == nil or #coefficients == 0 then
             error("coefficients need a table type", 2);
         end
@@ -608,7 +622,7 @@ do
         local coefficientsLength = #coefficients
         if (coefficientsLength > 1 and coefficients[1] == 0) then
             local firstNonZore = 1;
-            while (firstNonZore < coefficientsLength and coefficients[firstNonZore + 1] == 0) do
+            while (firstNonZore < coefficientsLength and coefficients[firstNonZore] == 0) do
                 firstNonZore = firstNonZore + 1;
             end
             if firstNonZore == coefficientsLength then
@@ -657,7 +671,7 @@ do
             return self.field:getZero()
         end
         local size = #self.coefficients;
-        local product = {};
+        local product = new(size + degree);
         for i = 1, size do
             product[i] = self.field:multiply(self.coefficients[i], coefficient);
         end
@@ -677,12 +691,11 @@ do
         local bCoefficients = other.coefficients;
         local bLength = #bCoefficients;
 
-        local product = {};
+        local product = new(aLength + bLength - 1);
         for i = 1, aLength, 1 do
             local aCoeff = aCoefficients[i];
             for j = 1, bLength, 1 do
-                if (product[i + j] == nil) then product[i + j] = 0 end
-                product[i + j] = GF256:addOrSubtract(product[i+j], self.field:multiply(aCoeff, bCoefficients[j]));
+                product[i + j - 1] = GF256:addOrSubtract(product[i+j-1], self.field:multiply(aCoeff, bCoefficients[j]));
             end
         end
         return GF256Poly:New(self.field, product);
@@ -732,19 +745,20 @@ do
         return newObj;
     end
 
-    function GF256:getZero()
+    function GF256.prototype:getZero()
         return self.zero;
     end
 
-    function GF256:getOne()
+    function GF256.prototype:getOne()
         return self.one;
     end
 
-    function GF256:addOrSubtract(a, b)
-        return bit.bxor(a, b)
+    function GF256.prototype:addOrSubtract(a, b)
+        return a^b
     end
+    GF256.addOrSubtract = GF256.prototype.addOrSubtract
 
-    function GF256:multiply(a, b)
+    function GF256.prototype:multiply(a, b)
         if a == 0 or b == 0 then
             return 0
         end
@@ -752,7 +766,7 @@ do
         return self.expTable[bit.band(logSum, 0xFF) + bit.arshift(logSum, 8)]
     end
 
-    function GF256:exp(a)
+    function GF256.prototype:exp(a)
         return self.expTable[a]
     end
 
@@ -766,7 +780,7 @@ end
 ---------------------------------------------------
 do
     ReedSolomonEncoder.prototype = {}  
-    local ReedSolomonEncoder_MT = { __index = ReedSolomonEncoder };
+    local ReedSolomonEncoder_MT = { __index = ReedSolomonEncoder.prototype };
 
     function ReedSolomonEncoder:New(field)
         check(1, field, "table");
@@ -786,7 +800,7 @@ do
         if degree >= #self.cachedGenerators then
             local lastGenerator = self.cachedGenerators[#self.cachedGenerators];
             for d = #self.cachedGenerators, degree, 1 do
-              local nextGenerator = lastGenerator:multiply(GF256Poly:New(self.field, {1, self.field:exp(d - 1)}));
+              local nextGenerator = lastGenerator:multiply(GF256Poly:New(self.field, {1, self.field:exp(d)}));
               tinsert(self.cachedGenerators, nextGenerator);
               lastGenerator = nextGenerator;
             end
@@ -802,18 +816,16 @@ do
         if dataBytes <= 0 then
             error("No data bytes provided.", 2)
         end
-        local temp = {}
-        --[[
         local generator = self:builderGenerator(ecBytes);
-        local infoCoefficients = {};
-        for i = 1, dataBytes do
-            infoCoefficients[i] = 0;
-        end
-        copyTable(toEncode, infoCoefficients);
+        local infoCoefficients = new(dataBytes);
+        arraycopy(toEncode, 1, infoCoefficients, 1, dataBytes);
         local info = GF256Poly:New(self.field, infoCoefficients);
         info = info:multiplyByMonomial(ecBytes, 1);
-        local remainder = info:divide(generator);
-        ]]
+        print(generator:isZero())
+        --local remainder = info:divide(generator);
+        --local coefficients = remainder:getCoefficients();
+        --local numZeroCoefficients = ecBytes - #coefficients;
+        --
     end
 end
 
@@ -999,7 +1011,7 @@ do
         return self:getVersionForNumber(bit.rshift((dimension - 17), 2)); 
     end
 
-    function Version.prototype:getVersionForNumber(versionNumber)
+    function Version:getVersionForNumber(versionNumber)
         if (versionNumber < 1 or versionNumber > 40) then
             error("version number is invaild value", 2);
         end
@@ -1407,7 +1419,7 @@ end
 -- Encode method class
 --------------------------------------------------------
 do
-    local Encode.prototype = {}
+    Encode.prototype = {}
     local Encode_MT = {__index = Encode.prototype}
     
     function Encode:New(contents, ecLevel, hints, qrcode)
@@ -1417,13 +1429,7 @@ do
             encoding = "utf8";
         end
         --setup 1: choose the mode(encoding);
-        if debug then
-            print("setup1", contents, encoding);
-        end
         local mode = newObj:chooseMode(contents, encoding)
-        if debug then
-            print("chooseMode", mode:getName())
-        end
         --setup 2: append bytes into dataBits in approprise encoding
         local dataBits = BitArray:New();
         newObj:appendBytes(contents, mode, dataBits, encoding);
@@ -1440,11 +1446,12 @@ do
         newObj:appendModeInfo(mode, headerAndDataBits)
         local numLetters = (mode == Mode.BYTE) and dataBits:getSizeInBytes() or #contents;
         newObj:appendLengthInfo(numLetters, qrcode:GetVersion(), mode, headerAndDataBits);
+        headerAndDataBits:appendBitArray(dataBits);
+
         -- setup 5: terminate the bits properly
         newObj:terminateBits(qrcode:GetNumDataBytes(), headerAndDataBits);
         -- setup 6: interleave data bits with error correction code;
         local finalBits = BitArray:New();
-        --TODO: lua table fixing 
         newObj:interLeaveWithECBytes(headerAndDataBits, qrcode:GetNumTotalBytes(), qrcode:GetNumDataBytes(), qrcode:GetNumRSBlocks(), finalBits);
        --[[ 
         -- setup 7: choose the mask pattern and set to "qrCode"
@@ -1507,9 +1514,6 @@ do
     end
 
     function Encode.prototype:appendBytes(content, mode, bits, encoding)
-        if debug then
-            print("appendBytes", contents, mode, bits, encoding)
-        end
         if mode == Mode.NUMERIC then
             self:appendNumericBytes(content, bits)
         elseif mode == Mode.ALPHANUMERIC then
@@ -1532,7 +1536,7 @@ do
                 i = i + 3;
             elseif (i + 1 < len) then
                 local num2 = string.sub(content, i + 2, i +2);
-                bits:appendBits(num1 * 100 + num2, 7);
+                bits:appendBits(num1 * 10 + num2, 7);
                 i = i + 2;
             else
                 bits:appendBits(num1, 4)
@@ -1581,6 +1585,7 @@ do
 
     function Encode.prototype:terminateBits(numDataBytes, bits)
         local capacity = bit.lshift(numDataBytes, 3);
+        
         if (bits:getSize() > capacity) then
             error("The data bits cannot fit in the QRCode ".. bits:getSize(), 2);
         end
@@ -1624,26 +1629,26 @@ do
             local numDataBytesInBlock, numEcBytesInBlock = {}, {};
             self:getNumDataBytesAndNumECBytesForBlockID(numTotalBytes, numDataBytes, numRSBlocks, i, numDataBytesInBlock, numEcBytesInBlock);
             local size = numDataBytesInBlock[1];
-            dataBytes = {};
+            local dataBytes = new(size);
             bits:toBytes(8 * dataBytesOffset, dataBytes, 0, size )
-            ecBytes = self:generateECBytes(dataBytes, numEcBytesInBlock[1]);
+            local ecBytes = self:generateECBytes(dataBytes, numEcBytesInBlock[1]);
             --maxNumDataBytes = math.max(maxNumDataBytes, size);
             --maxNumEcBytes = math.max(maxNumEcBytes, );
             --dataBytesOffset = dataBytesOffset + numDataBytesInBlock[1]
-        end
+          end
     end
 
     function Encode.prototype:generateECBytes(dataBytes, numEcBytesInBlock)
+        check(1, dataBytes, "table");
+        check(2, numEcBytesInBlock, "number");
         local numDataBytes = #dataBytes
-        local toEncode = {};
-        for i = 0, (numDataBytes + numEcBytesInBlock - 1) do
-            toEncode[i] = 0;
-        end
-        for i = 0, numDataBytes do
+        local toEncode = new(numDataBytes + numEcBytesInBlock);
+        for i = 1, numDataBytes do
             toEncode[i] = bit.band(dataBytes[i], 0xFF);
         end
         local RSEncoder = ReedSolomonEncoder:New(GF256.QR_CODE_FIELD);
         RSEncoder:encode(toEncode, numEcBytesInBlock);
+        --TODO
     end
 
     --- Get number of data bytes and number of error correction bytes for block id "blockID".
@@ -1792,7 +1797,7 @@ end
 test code
 ]]
 do
---    lib:new();
+    lib:new();
 	--/dump LibStub("LibQRCode-1.0"):new()
 end
 
