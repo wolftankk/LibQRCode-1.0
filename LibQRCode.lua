@@ -81,9 +81,7 @@ end
 
 local QRCode = {}
 local BitArray = {}
-
 local Mode = {}
-local Mode_MT = {__index = Mode};
 
 local ErrorCorrectionLevel = {};
 local ErrorCorrectionLevel_MT = {__index = ErrorCorrectionLevel}
@@ -146,6 +144,7 @@ do
         numRSBlocks = -1,
         martix = nil
     }
+
     --- Construct and return a new QRCode
     -- @return object 
     -- @usage QRCode:New(); 
@@ -267,7 +266,7 @@ do
     end
 
     function QRCode.prototype:SetMatrix(value)
-        check(1, value, "number")
+        check(1, value, "table")
         self.matrix = value
     end
 
@@ -335,9 +334,37 @@ do
     function BitArray.prototype:getSizeInBytes()
         return bit.rshift(self.size + 7, 3);
     end
-
+    
+    -- @param b bit to get
+    -- @return true if bit b is set
     function BitArray.prototype:get(b)
+        check(1, b, "number")
         return (bit.band(self.bits[bit.rshift(b, 5)], bit.lshift(1, bit.band(b, 0x1F))) ~= 0)
+    end
+   
+    --- Sets bit b
+    -- @param b bit to set
+    function BitArray.prototype:set(b)
+        check(1, b, "number")
+        self.bits[ bit.rshift(b, 5) ] = bit.bor( self.bits[bit.rshift(b, 5)], bit.lshift(1, bit.band(b, 0x1F)));
+    end
+
+    --- Flips bit b
+    -- @param b bit to set
+    function BitArray.prototype:flip(b)
+        check(1, b, "number")
+        self.bits[ bit.rshift(b, 5)] = bit.bxor( self.bits[bit.rshift(b, 5)], bit.lshift(1, bit.band(b, 0x1F))); 
+    end
+
+    --- Set a block of 32 bits, starting at bit b
+    -- @param b first bit to set
+    -- @param newBits the new value of the next 32bits.
+    function BitArray.prototype:setBulk(b, newBits)
+        check(1, self, "table");
+        check(2, b, "number");
+        check(3, newBits, "number");
+
+        self.bits[ bit.rshift(b, 5) ] = newBits;
     end
 
     function BitArray.prototype:toBytes(bitOffset, array, offset, numBytes)
@@ -381,6 +408,34 @@ do
         end
     end
 end
+
+--[[
+-- BitArray Test Unit
+--]]
+do
+    --set/get
+    local function test1()
+        local array = BitArray:New(33);
+        for i= 1, 33 do
+            print(array:get(i), "false");
+            
+            array:set(i);
+
+            print(array:get(i), "true");
+        end
+    end
+
+    --set/bulk
+    local function test2()
+        local array = BitArray:New(64);
+        array:setBulk(32, 0xFFFF0000);
+
+    end
+
+    test2();
+end
+
+
 --------------------------------------------------------------------
 local GF256Poly = {}
 local GF256Poly_MT = {__index = GF256Poly};
@@ -791,79 +846,83 @@ end
 ------------------------------------------------
 -- Mode method class
 ------------------------------------------------
-function Mode:New(versions, bits, name)
-    local newObj = setmetatable({}, Mode_MT)
-    newObj.characterCountBitsForVersions = versions;
-    newObj.bits = bits;
-    newObj.name = name;
-    return newObj
-end
-
-function Mode:forBits(bits)
-    if bits == 0x00 then
-        return self.TERMINATOR
-    elseif bits == 0x01 then
-        return self.NUMERIC
-    elseif bits == 0x02 then
-        return self.ALPHANUMERIC;
-    elseif bits == 0x03 then
-        return self.STRUCTURED_APPED;
-    elseif bits == 0x04 then
-        return self.BYTE;
-    elseif bits == 0x05 then
-        return self.FNC1_FIRST_POSITION;
-    elseif bits == 0x07 then
-        return self.ECI
-    elseif bits == 0x08 then
-        return self.KANJI;
-    elseif bits == 0x09 then
-        return self.FNC1_SECOND_POSITION;
-    else
-        error("bits is invaild value, not the mode",2);
-    end
-end
-
---- get character count bit for versions
---  the count of characters that will follow encoded in this
--- @param version  version in question
--- @return  number of bits used, in this QRCode symbol. to encode
-function Mode:getCharacterCountBits(version)
-    if self.characterCountBitsForVersions == nil then
-        error("LibQRCode-1.0: Character count doesnt apply to this mode.");
-    end
-
-    local number = version:getVersionNumber();
-    local offset;
-    if number <= 9 then
-        offset = 1
-    elseif number <= 26 then
-        offset = 2;
-    else
-        offset = 3;
-    end
-    return self.characterCountBitsForVersions[offset];
-end
-
-function Mode:getBits()
-    return self.bits;
-end
-
-function Mode:getName()
-    return self.name;
-end
-
 do
-    Mode.TERMINATOR = Mode:New({0, 0, 0}, 0x00, "TERMINATOR")
-    Mode.NUMERIC = Mode:New({10, 12, 14}, 0x01, "NUMERIC")
-    Mode.ALPHANUMERIC = Mode:New({9, 11, 13}, 0x02, "ALPHANUMERIC");
-    Mode.STRUCTURED_APPED = Mode:New({0, 0, 0}, 0x03, "STRUCTURED_APPED");--not suppered
-    Mode.BYTE = Mode:New({8, 16, 16}, 0x04, "BYTE");
-    Mode.ECI = Mode:New(nil, 0x07, "ECI");--dont apply
-    Mode.KANJI = Mode:New({8, 10, 12}, 0x08, "KANJI");--arsia charsets
-    Mode.FNC1_FIRST_POSITION = Mode:New(nil, 0x05, "FNC1_FIRST_POSITION");
-    Mode.FNC1_SECOND_POSITION = Mode:New(nil, 0x09, "FNC1_SECOND_POSITION");
-end
+    Mode.prototype = {};
+    Mode_MT = {__index = Mode.prototype}
 
+    function Mode:New(versions, bits, name)
+        local newObj = setmetatable({}, Mode_MT)
+        newObj.characterCountBitsForVersions = versions;
+        newObj.bits = bits;
+        newObj.name = name;
+        return newObj
+    end
+
+    function Mode:forBits(bits)
+        if bits == 0x00 then
+            return self.TERMINATOR
+        elseif bits == 0x01 then
+            return self.NUMERIC
+        elseif bits == 0x02 then
+            return self.ALPHANUMERIC;
+        elseif bits == 0x03 then
+            return self.STRUCTURED_APPED;
+        elseif bits == 0x04 then
+            return self.BYTE;
+        elseif bits == 0x05 then
+            return self.FNC1_FIRST_POSITION;
+        elseif bits == 0x07 then
+            return self.ECI
+        elseif bits == 0x08 then
+            return self.KANJI;
+        elseif bits == 0x09 then
+            return self.FNC1_SECOND_POSITION;
+        else
+            error("bits is invaild value, not the mode",2);
+        end
+    end
+
+    --- get character count bit for versions
+    --  the count of characters that will follow encoded in this
+    -- @param version  version in question
+    -- @return  number of bits used, in this QRCode symbol. to encode
+    function Mode:getCharacterCountBits(version)
+        if self.characterCountBitsForVersions == nil then
+            error("LibQRCode-1.0: Character count doesnt apply to this mode.");
+        end
+
+        local number = version:getVersionNumber();
+        local offset;
+        if number <= 9 then
+            offset = 1
+        elseif number <= 26 then
+            offset = 2;
+        else
+            offset = 3;
+        end
+        return self.characterCountBitsForVersions[offset];
+    end
+
+    function Mode:getBits()
+        return self.bits;
+    end
+
+    function Mode:getName()
+        return self.name;
+    end
+
+    do
+        Mode.TERMINATOR = Mode:New({0, 0, 0}, 0x00, "TERMINATOR")
+        Mode.NUMERIC = Mode:New({10, 12, 14}, 0x01, "NUMERIC")
+        Mode.ALPHANUMERIC = Mode:New({9, 11, 13}, 0x02, "ALPHANUMERIC");
+        Mode.STRUCTURED_APPED = Mode:New({0, 0, 0}, 0x03, "STRUCTURED_APPED");--not suppered
+        Mode.BYTE = Mode:New({8, 16, 16}, 0x04, "BYTE");
+        Mode.ECI = Mode:New(nil, 0x07, "ECI");--dont apply
+        Mode.KANJI = Mode:New({8, 10, 12}, 0x08, "KANJI");--arsia charsets
+        Mode.FNC1_FIRST_POSITION = Mode:New(nil, 0x05, "FNC1_FIRST_POSITION");
+        Mode.FNC1_SECOND_POSITION = Mode:New(nil, 0x09, "FNC1_SECOND_POSITION");
+    end
+end
 ------------------------------------------------
 -- byte matrix class method
 ------------------------------------------------
@@ -1499,6 +1558,48 @@ end
 test code
 ]]
 do
-    lib:new();
+--    lib:new();
 	--/dump LibStub("LibQRCode-1.0"):new()
+end
+
+--[[
+-- QRCode Test Unit
+--]]
+do
+    local function testqrcode()
+        local qrCode = QRCode:New();
+        qrCode:SetMode(Mode.BYTE);
+        qrCode:SetECLevel(ECList.H);
+        qrCode:SetVersion(7)
+        qrCode:SetMatrixWidth(45);
+        qrCode:SetMaskPattern(3);
+        qrCode:SetNumTotalBytes(196);
+        qrCode:SetNumDataBytes(66);
+        qrCode:SetNumECBytes(130);
+        qrCode:SetNumRSBlocks(5);
+
+        assert(Mode.BYTE == qrCode:GetMode());
+        print(ECList.H == qrCode:GetECLevel());
+        print(7 == qrCode:GetVersion());
+        print(45 == qrCode:GetMatrixWidth());
+        print(3 == qrCode:GetMaskPattern());
+        print(196 == qrCode:GetNumTotalBytes());
+        print(66 == qrCode:GetNumDataBytes());
+        print(130 == qrCode:GetNumECBytes());
+        print(5 == qrCode:GetNumRSBlocks());
+
+        print(qrCode:isVaild());
+
+        local matrix = bMatrix:New(45, 45);
+        for y = 1, 45 do
+            for x = 1, 45 do
+                matrix:set(x, y, (y + x) % 2);
+            end
+        end
+
+        qrCode:SetMatrix(matrix);
+        print(matrix, qrCode:GetMatrix());
+        print(martix == qrCode:GetMatrix());
+        print(qrCode:isVaild());
+    end
 end
