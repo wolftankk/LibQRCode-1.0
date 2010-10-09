@@ -135,6 +135,7 @@ end
 
 local QRCode = {}
 local BitArray = {}
+local BlockPair = {};
 local Mode = {}
 
 local ErrorCorrectionLevel = {};
@@ -620,6 +621,7 @@ do
         end
         newObj.field = field;
         local coefficientsLength = #coefficients
+        
         if (coefficientsLength > 1 and coefficients[1] == 0) then
             local firstNonZore = 1;
             while (firstNonZore < coefficientsLength and coefficients[firstNonZore] == 0) do
@@ -642,7 +644,7 @@ do
     end
 
     function GF256Poly.prototype:getDegree()
-        return #self.coefficients - 1;
+        return (#self.coefficients - 1);
     end
 
     function GF256Poly.prototype:isZero()
@@ -677,11 +679,43 @@ do
         end
         return GF256Poly:New(self.field, product);
     end
+   
+    --TODO: puts data is error
+    function GF256Poly.prototype:addOrSubtract(other)
+        if self:isZero() then
+            return other
+        end
+
+        if other:isZero() then
+            return self
+        end
+
+        local smaller = self.coefficients;
+        local larger = other.coefficients;
+        
+        if #smaller > #larger then
+            local t = smaller;
+            smaller = larger;
+            larger = t;
+        end
+
+        local sumDiff = new(#larger);
+        local lengthDiff = #larger - #smaller;
+        arraycopy(larger, 1, smaller, 1, lengthDiff);
+        
+        for i = lengthDiff + 1, #larger do
+            sumDiff[i] = GF256:addOrSubtract(smaller[i-lengthDiff], larger[i]);
+        end
+        
+        return (GF256Poly:New(self.field, sumDiff));
+    end
 
     function GF256Poly.prototype:multiply(other)
+        check(1, other, "table")
         if (self.field ~= other.field) then
             error("GF256Polys do not have same GF256 field", 2);
         end
+
         if (self:isZero() or other:isZero()) then
             return self.field:getZero();
         end
@@ -690,7 +724,7 @@ do
 
         local bCoefficients = other.coefficients;
         local bLength = #bCoefficients;
-
+        
         local product = new(aLength + bLength - 1);
         for i = 1, aLength, 1 do
             local aCoeff = aCoefficients[i];
@@ -712,7 +746,19 @@ do
         local quotient = self.field:getZero();
         local remainder = self;
         
-        --local denominatorLeadingTerm = other:getCoefficient(other:getDegree());
+        local denominatorLeadingTerm = other:getCoefficient(other:getDegree());
+        local inverseDeniminator = self.field:inverse(denominatorLeadingTerm);
+        
+        while ( (remainder:getDegree() >= other:getDegree()) and (not remainder:isZero()) ) do
+            local diffDegree = remainder:getDegree() - other:getDegree()
+            local scale = self.field:multiply(remainder:getCoefficient(remainder:getDegree()), inverseDeniminator);
+            local term = other:multiplyByMonomial(diffDegree, scale);
+            local interationQuotient = self.field:buildMonomial(diffDegree, scale);
+            quotient = quotient:addOrSubtract(interationQuotient);
+            remainder = remainder:addOrSubtract(term);
+        end
+        
+        return {quotient, remainder};
     end
 end
 --------------------------------------------------------------------
@@ -721,24 +767,22 @@ do
     local GF256_MT = {__index = GF256.prototype};
     function GF256:New(primitive)
         local newObj = setmetatable({}, GF256_MT);
-        
         newObj.expTable = new(256);
         newObj.logTable = new(256);
 
         local x = 1;
-       
         for i = 1, 256 do
             newObj.expTable[i] = x
             x = bit.lshift(x, 1);
             if (x >= 0x100) then
-                x = bit.bxor(primitive);
+                x = bit.bxor(primitive, x);
             end
         end
 
-        for i=1, 256 do
-            newObj.logTable[newObj.expTable[i]] = i;
+        for i= 0, 254 do
+            newObj.logTable[newObj.expTable[i + 1]] = i;
         end
-
+        
         newObj.zero = GF256Poly:New(newObj, {0});
         newObj.one = GF256Poly:New(newObj, {1});
         
@@ -753,17 +797,41 @@ do
         return self.one;
     end
 
-    function GF256.prototype:addOrSubtract(a, b)
-        return a^b
+    function GF256.prototype:buildMonomial(degree, coefficient)
+        check(1, degree, "number");
+        check(2, coefficient, "number");
+        if degree < 0 then
+            error("The degree is must be greater than zero.", 2);
+        end
+        
+        if coefficient == 0 then
+            return self.zero;
+        end
+
+        local coefficients = new(degree + 1);
+        coefficients[1] = coefficient;
+        return GF256Poly:New(self, coefficients);
     end
-    GF256.addOrSubtract = GF256.prototype.addOrSubtract
+
+    function GF256.prototype:addOrSubtract(a, b)
+        return (bit.bxor(a, b))
+    end
+
+    function GF256:addOrSubtract(a, b)
+        return (bit.bxor(a, b))
+    end
+    
+    function GF256.prototype:inverse(a)
+        check(1, a, "number");
+        return (self.expTable[256 - self.logTable[a]])
+    end
 
     function GF256.prototype:multiply(a, b)
         if a == 0 or b == 0 then
             return 0
         end
         local logSum = self.logTable[a] + self.logTable[b]
-        return self.expTable[bit.band(logSum, 0xFF) + bit.arshift(logSum, 8)]
+        return self.expTable[bit.band(logSum, 0xFF) + bit.arshift(logSum, 8) + 1]
     end
 
     function GF256.prototype:exp(a)
@@ -772,7 +840,7 @@ do
 
     do
         GF256.QR_CODE_FIELD = GF256:New(0x011D);-- x^8 + x^4 + x^ 4 + x^2 + x^1
-        GF256.DATA_MATRIX_FIELD = GF256:New(0x012D);-- x^8 + x^5 + x^3 + x^2 + 1
+        --GF256.DATA_MATRIX_FIELD = GF256:New(0x012D);-- x^8 + x^5 + x^3 + x^2 + 1
     end
 end
 ---------------------------------------------------
@@ -821,11 +889,14 @@ do
         arraycopy(toEncode, 1, infoCoefficients, 1, dataBytes);
         local info = GF256Poly:New(self.field, infoCoefficients);
         info = info:multiplyByMonomial(ecBytes, 1);
-        print(generator:isZero())
-        --local remainder = info:divide(generator);
-        --local coefficients = remainder:getCoefficients();
-        --local numZeroCoefficients = ecBytes - #coefficients;
-        --
+        local remainder = info:divide(generator)[2];
+        local coefficients = remainder:getCoefficients();
+        local numZeroCoefficients = ecBytes - #coefficients;
+        for i = 1, numZeroCoefficients do
+            toEncode[dataBytes + i] = 0
+        end
+
+        arraycopy(coefficients, 1, toEncode, dataBytes+numZeroCoefficients + 1, #coefficients)
     end
 end
 
@@ -849,7 +920,6 @@ do
             
         end
     end
-    testQRCodeVersus();
 end
 ---------------------------------------------------
 -- Error Correction 
@@ -1215,6 +1285,8 @@ end
 do
     MatrixUtil.prototype = {}
     local MatrixUtil_MT = {__index = MatrixUtil.prototype};
+    setmetatable(MatrixUtil, MatrixUtil_MT);    
+
     function MatrixUtil:New()
         return setmetatable({}, MatrixUtil_MT);
     end
@@ -1415,6 +1487,28 @@ do
             self:embedVerticalSeparationPattern(vspSize, matrix:getWidth() - vspSize + 1, matrix)
     end
 end
+
+do
+    BlockPair.prototype = {}
+
+    function BlockPair:New(data, errorCorrection)
+        local newObj = setmetatable({}, {__index = BlockPair.prototype});
+        newObj.dataBytes = data;
+        newObj.errorCorrectionBytes = errorCorrection;
+
+        return newObj
+    end
+
+
+    function BlockPair.prototype:getDataBytes()
+        return self.dataBytes
+    end
+
+    function BlockPair.prototype:getErrorCorrectionBytes()
+        return self.errorCorrectionBytes
+    end
+end
+
 --------------------------------------------------------
 -- Encode method class
 --------------------------------------------------------
@@ -1452,8 +1546,7 @@ do
         newObj:terminateBits(qrcode:GetNumDataBytes(), headerAndDataBits);
         -- setup 6: interleave data bits with error correction code;
         local finalBits = BitArray:New();
-        newObj:interLeaveWithECBytes(headerAndDataBits, qrcode:GetNumTotalBytes(), qrcode:GetNumDataBytes(), qrcode:GetNumRSBlocks(), finalBits);
-       --[[ 
+        --newObj:interLeaveWithECBytes(headerAndDataBits, qrcode:GetNumTotalBytes(), qrcode:GetNumDataBytes(), qrcode:GetNumRSBlocks(), finalBits);
         -- setup 7: choose the mask pattern and set to "qrCode"
         local matrix = bMatrix:New(qrcode:GetMatrixWidth(), qrcode:GetMatrixWidth()); 
         qrcode:SetMaskPattern(newObj:chooseMaskPattern(finalBits, qrcode:GetECLevel(), qrcode:GetVersion(), matrix));
@@ -1464,7 +1557,6 @@ do
         --if (not qrcode:isVaild()) then
         --    error("Invaild QR Code.", 2)
         --end
-        ]]
         return newObj
     end
 
@@ -1503,14 +1595,21 @@ do
 
         return Mode.BYTE;
     end
-
+    
+    --TODO
     function Encode.prototype:chooseMaskPattern(bits, ecLevel, version, matrix)
         local minPenaly = 2^31 - 1;
         local bestMaskPattern = -1;
         for maskPattern = 1, NUM_MASK_PATTERNS do
-            
-            
+            MatrixUtil:buildMatrix(bits, ecLevel, version, maskPattern, matrix);
+            local panalty = self:calcMaskPattern(matrix);
+
         end
+        return bestMaskPattern;
+    end
+
+    function Encode.prototype:calcMaskPattern(martix)
+
     end
 
     function Encode.prototype:appendBytes(content, mode, bits, encoding)
@@ -1632,9 +1731,14 @@ do
             local dataBytes = new(size);
             bits:toBytes(8 * dataBytesOffset, dataBytes, 0, size )
             local ecBytes = self:generateECBytes(dataBytes, numEcBytesInBlock[1]);
-            --maxNumDataBytes = math.max(maxNumDataBytes, size);
-            --maxNumEcBytes = math.max(maxNumEcBytes, );
-            --dataBytesOffset = dataBytesOffset + numDataBytesInBlock[1]
+            tinsert(blocks, BlockPair:New(dataBytes, ecBytes));
+            maxNumDataBytes = math.max(maxNumDataBytes, size);
+            maxNumEcBytes = math.max(maxNumEcBytes, #ecBytes);
+            dataBytesOffset = dataBytesOffset + numDataBytesInBlock[1]
+          end
+
+          if numDataBytes ~= dataBytesOffset then
+            error("Data bytes does not match offset", 2)
           end
     end
 
@@ -1648,7 +1752,12 @@ do
         end
         local RSEncoder = ReedSolomonEncoder:New(GF256.QR_CODE_FIELD);
         RSEncoder:encode(toEncode, numEcBytesInBlock);
-        --TODO
+
+        local ecBytes = new(numEcBytesInBlock);
+        for  i = 1, numEcBytesInBlock do
+            ecBytes[i] = (toByte(toEncode[i]))
+        end
+        return ecBytes
     end
 
     --- Get number of data bytes and number of error correction bytes for block id "blockID".
