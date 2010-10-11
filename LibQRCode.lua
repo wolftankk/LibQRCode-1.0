@@ -168,6 +168,7 @@ local Encode = {};
 local Version = {}
 local bMatrix = {}
 local MatrixUtil = {}
+local MaskUtil = {};
 local QRCodeWriter = {}
 
 local GF256 = {}
@@ -1393,8 +1394,7 @@ end
 -- Matrix util
 --------------------------------------------------------
 do
-    MatrixUtil.prototype = {}
-    local MatrixUtil_MT = {__index = MatrixUtil.prototype};
+    local MatrixUtil_MT = {__index = MatrixUtil};
 
     function MatrixUtil:New()
         return setmetatable({}, MatrixUtil_MT);
@@ -1497,11 +1497,11 @@ do
     MatrixUtil.TYPE_INFO_POLY = 0x537;
     MatrixUtil.TYPE_INFO_MASK_PATTERN = 0x5412;
 
-    function MatrixUtil.prototype:clearMatrix(matrix)
+    function MatrixUtil:clearMatrix(matrix)
         matrix:clear(-1)
     end
 
-    function MatrixUtil.prototype:buildMatrix(dataBits, ecLevel, version, maskPattern, matrix)
+    function MatrixUtil:buildMatrix(dataBits, ecLevel, version, maskPattern, matrix)
         self:clearMatrix(matrix);
 
         --embeds base patterns
@@ -1518,7 +1518,7 @@ do
     -- Dark dont at the left bottom corner
     -- @param object version
     -- @param object version
-    function MatrixUtil.prototype:embedBasicPatterns(version, matrix)
+    function MatrixUtil:embedBasicPatterns(version, matrix)
         --first
         -- lets get started with embedding big squares at corners
         self:embedPositionDetectionPatternAndSquarators(matrix);
@@ -1528,7 +1528,7 @@ do
         self:embedTimingPatterns(matrix)
     end
 
-    function MatrixUtil.prototype:embedTimingPatterns(matrix)
+    function MatrixUtil:embedTimingPatterns(matrix)
         for i = 8, matrix:getWidth() - 7, 1 do
             local b = (i + 1) % 2;
             if (matrix:get(i + 1, 7) == -1) then
@@ -1540,11 +1540,11 @@ do
         end
     end
 
-    function MatrixUtil.prototype:embedDarkDotAtLeftBottomConer(matrix)
+    function MatrixUtil:embedDarkDotAtLeftBottomConer(matrix)
         matrix:set(8 + 1, matrix:getHeight() - 8 + 1, 1);
     end
 
-    function MatrixUtil.prototype:embedPositionDetectionPattern(xStart, yStart, matrix)
+    function MatrixUtil:embedPositionDetectionPattern(xStart, yStart, matrix)
         for y = 1, 7 do
             for x = 1, 7 do
                 matrix:set(xStart + x, yStart + y, self.POSITION_DETECTION_PATTERN[y][x])
@@ -1552,7 +1552,7 @@ do
         end
     end
 
-    function MatrixUtil.prototype:embedHorizontalSeparationPattern(xStart, yStart, matrix)
+    function MatrixUtil:embedHorizontalSeparationPattern(xStart, yStart, matrix)
         if #self.HORIZONTAL_SEPARATION_PATTERN[1] ~= 8 or #self.HORIZONTAL_SEPARATION_PATTERN ~= 1 then
           error("bad horizontal separation pattern", 2);
         end
@@ -1561,13 +1561,13 @@ do
         end
     end
 
-    function MatrixUtil.prototype:embedVerticalSeparationPattern(xStart, yStart, matrix)
+    function MatrixUtil:embedVerticalSeparationPattern(xStart, yStart, matrix)
         for y = 1, 7 do
                 matrix:set(xStart, yStart+y, self.VERTICAL_SEPARATION_PATTERN[y][1]);
         end
     end
 
-    function MatrixUtil.prototype:embedPositionDetectionPatternAndSquarators(matrix)
+    function MatrixUtil:embedPositionDetectionPatternAndSquarators(matrix)
         local pdpWidth = #self.POSITION_DETECTION_PATTERN[1]
         
         --left top corner
@@ -1627,6 +1627,54 @@ do
 end
 
 --------------------------------------------------------
+-- MaskUtil
+--------------------------------------------------------
+do
+    function MaskUtil:applyMaskPenaltyRule1(matrix)
+        return self:applyMaskPenaltyRule1Internal(matrix, true) + self:applyMaskPenaltyRule1Internal(matrix, false)
+    end
+
+    function MaskUtil:applyMaskPenaltyRule2()
+
+    end
+
+    function MaskUtil:applyMaskPenaltyRule3()
+
+    end
+
+    function MaskUtil:applyMaskPenaltyRule4()
+
+    end
+
+    function MaskUtil:applyMaskPenaltyRule1Internal(matrix, isHorizontal)
+        local panalty = 0;
+        local numSamebitCells = 0;
+        local prevBit = -1;
+        local iLimit = isHorizontal and matrix:getHeight() or matrix:getWidth();
+        local jLimit = isHorizontal and matrix:getWidth() or matrix:getHeight();
+        local array = matrix:getTable()
+        for i = 1, iLimit do
+            for j = 1, jLimit do
+                local b = isHorizontal and array[i][j] or array[j][i];
+                if bit == prevBit then
+                    numSamebitCells = numSamebitCells + 1;
+                    if numSamebitCells == 5 then
+                        panalty = panalty + 3
+                    elseif numSamebitCells > 5 then
+                        panalty = panalty + 1
+                    end
+                else
+                    numSamebitCells = 1;
+                    prevBit = b
+                end
+            end
+            numSamebitCells = 0;
+        end
+        return panalty
+    end
+end
+
+--------------------------------------------------------
 -- Encode method class
 --------------------------------------------------------
 do
@@ -1642,6 +1690,12 @@ do
     Encode.prototype = {}
     local Encode_MT = {__index = Encode.prototype}
     
+    local function calcMaskPenalty(matrix)
+        local panalty = 0;
+        panalty = panalty + MaskUtil:applyMaskPenaltyRule1(matrix)
+        print(panalty)
+    end
+
     function Encode:New(contents, ecLevel, hints, qrcode)
         check(1, contents, "string");
         check(2, ecLevel, "table");
@@ -1679,6 +1733,9 @@ do
         -- setup 6: interleave data bits with error correction code;
         local finalBits = BitArray:New();
         newObj:interLeaveWithECBytes(headerAndDataBits, qrcode:GetNumTotalBytes(), qrcode:GetNumDataBytes(), qrcode:GetNumRSBlocks(), finalBits); 
+        -- setup 7: choose the mask pattern and set to "qrCode"
+        local matrix = bMatrix:New(qrcode:GetMatrixWidth(), qrcode:GetMatrixWidth()); 
+        qrcode:SetMaskPattern(newObj:chooseMaskPattern(finalBits, qrcode:GetECLevel(), qrcode:GetVersion(), matrix)); 
     end
    
     --- getAlphanumericCode 
@@ -1844,9 +1901,31 @@ do
             dataBytesOffset = dataBytesOffset + numDataBytesInBlock[1]
           end
 
-          if numDataBytes ~= dataBytesOffset then
+        if numDataBytes ~= dataBytesOffset then
             error("Data bytes does not match offset", 2)
-          end
+        end
+        
+        for i = 1,  maxNumDataBytes do
+            for j = 1, #blocks do
+                local dataBytes = blocks[j]:getDataBytes();
+                if ((i - 1) < #dataBytes) then
+                    result:appendBits(dataBytes[i], 8)
+                end
+            end
+        end
+
+        for i = 1, maxNumEcBytes do
+            for j = 1, #blocks do
+                local ecBytes = blocks[j]:getErrorCorrectionBytes();
+                if (i - 1) < #ecBytes then
+                    result:appendBits(ecBytes[i], 8)
+                end
+            end
+        end
+
+        if numTotalBytes ~= result:getSizeInBytes() then
+            error("Interleaving error: " .. numTotalBytes .. " and " ..result:getSizeInBytes() .. " differ.", 2)
+        end
     end
 
     function Encode.prototype:generateECBytes(dataBytes, numEcBytesInBlock)
@@ -1909,7 +1988,17 @@ do
         end
     end
     
-    
+
+    function Encode.prototype:chooseMaskPattern(bits, ecLevel, version, matrix)
+        local minPenaly = 2^31 - 1;
+        local bestMaskPattern = -1;
+        for maskPattern = 1, NUM_MASK_PATTERNS do
+            MatrixUtil:buildMatrix(bits, ecLevel, version, maskPattern, matrix);
+            local panalty = calcMaskPenalty(matrix);
+        end
+        return bestMaskPattern;
+        
+    end
 end
 
 --------------------------------------------------------
