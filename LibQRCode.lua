@@ -1517,7 +1517,7 @@ do
         self:makeTypeInfoBits(ecLevel, maskPattern, typeInfoBits)
     end
 
-    function MatrixUtil:makeTypeInfoBits(ecLevel, maskPattern, typeInfoBits)
+    function MatrixUtil:makeTypeInfoBits(ecLevel, maskPattern, bits)
         if not QRCode:isValidMaskPattern(maskPattern) then
             error("Invalid mask pattern", 2)
         end
