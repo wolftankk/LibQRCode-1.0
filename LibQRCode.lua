@@ -985,7 +985,6 @@ end
 -- Error Correction 
 ---------------------------------------------------
 do
-do
     ErrorCorrectionLevel.prototype = {};
     local ErrorCorrectionLevel_MT = {__index = ErrorCorrectionLevel.prototype}
 
