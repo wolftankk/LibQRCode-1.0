@@ -265,7 +265,7 @@ do
     --- check if "mask pattern" is vaild
     function QRCode.prototype:isValidMaskPattern(maskPattern)
         check(1, maskPattern, "number");
-        return (maskPattern > 0 and maskPattern < NUM_MASK_PATTERNS)
+        return (maskPattern >= 0 and maskPattern < NUM_MASK_PATTERNS)
     end
     QRCode.isValidMaskPattern = QRCode.prototype.isValidMaskPattern
 
@@ -545,7 +545,17 @@ do
             end
         end
     end
+    
+    function BitArray.prototype:xor(a)
+        check(1, a, "table");
+        if #self.bits ~= #a.bits then
+            error("size donot match", 2)
+        end
 
+        for i = 1, #self.bits do
+            self.bits[i] = bit.bxor(self.bits[i], a.bits[i])
+        end
+    end
 
     --[[
     -- BitArray Test Unit
@@ -1525,10 +1535,29 @@ do
         local typeinfo = bit.bor(bit.lshift(ecLevel:getBits(), 3), maskPattern);
         bits:appendBits(typeinfo, 5)
         local bchCode = self:calculateBCHCode(typeinfo, MatrixUtil.TYPE_INFO_POLY);
+        bits:appendBits(bchCode, 10);
+
+        local maskBits = BitArray:New();
+        maskBits:appendBits(MatrixUtil.TYPE_INFO_MASK_PATTERN, 15);
+        bits:xor(maskBits);
+
+        if bits:getSize() ~= 15 then
+            error("should not happend but we got:" .. bits:getSize(), 2);
+        end
     end
     
+    ---Return the position of the most significant bit set in the value.
+    --the most significant bit is position 32. If there is not bit set, return 0
+    -- @usage: MatrixUtil:findMSBSet(0) => 0
+    --         MatrixUtil:findMSBSet(1) => 1
+    --         MatrixUtil:findMSBSet(255) => 8
     function MatrixUtil:findMSBSet(value)
-
+        local num = 0;
+        while (value ~= 0) do
+            value = bit.arshift(value, 1);
+            num = num + 1;
+        end
+        return num
     end
 
     -- Calculate BCH (Bose-Chaudhuri-Hocquenghem) code for "value" using polynomial "poly". The BCH
@@ -1557,7 +1586,12 @@ do
     -- Since all coefficients in the polynomials are 1 or 0, we can do the calculation by bit
     -- operations. We don't care if cofficients are positive or negative.
     function MatrixUtil:calculateBCHCode(value, poly)
-
+        local msbSetInPoly = self:findMSBSet(poly);
+        value = bit.lshift(value, (msbSetInPoly - 1));
+        while (self:findMSBSet(value) >= msbSetInPoly) do
+            value = bit.bxor(value, bit.lshift(poly, (self:findMSBSet(value) - msbSetInPoly ) ));
+        end
+        return value;
     end
 
     --- Embed basic patterns. On success, modify  the matrix and return true
@@ -2041,7 +2075,9 @@ do
     function Encode.prototype:chooseMaskPattern(bits, ecLevel, version, matrix)
         local minPenaly = 2^31 - 1;
         local bestMaskPattern = -1;
-        for maskPattern = 1, NUM_MASK_PATTERNS do
+        --need fix
+        --@FIX
+        for maskPattern = 0, NUM_MASK_PATTERNS - 1 do
             MatrixUtil:buildMatrix(bits, ecLevel, version, maskPattern, matrix);
             local panalty = calcMaskPenalty(matrix);
         end
