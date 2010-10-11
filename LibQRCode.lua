@@ -267,6 +267,7 @@ do
         check(1, maskPattern, "number");
         return (maskPattern > 0 and maskPattern < NUM_MASK_PATTERNS)
     end
+    QRCode.isValidMaskPattern = QRCode.prototype.isValidMaskPattern
 
     --- set mask pattern of the QRCode
     function QRCode.prototype:SetMaskPattern(value)
@@ -1498,7 +1499,7 @@ do
     MatrixUtil.TYPE_INFO_MASK_PATTERN = 0x5412;
 
     function MatrixUtil:clearMatrix(matrix)
-        matrix:clear(-1)
+        matrix:clear(toByte(-1))
     end
 
     function MatrixUtil:buildMatrix(dataBits, ecLevel, version, maskPattern, matrix)
@@ -1507,8 +1508,17 @@ do
         --embeds base patterns
         self:embedBasicPatterns(version, matrix);
         --type infomation appear with any version
-        --self:embedTypeInfo(ecLevel, maskPattern, matrix);
+        self:embedTypeInfo(ecLevel, maskPattern, matrix);
 
+    end
+
+    function MatrixUtil:embedTypeInfo(ecLevel, maskPattern, matrix)
+        local typeInfoBits = BitArray:New();
+        self:makeTypeInfoBits(ecLevel, maskPattern, typeInfoBits)
+    end
+
+    function MatrixUtil:makeTypeInfoBits(ecLevel, maskPattern, typeInfoBits)
+        
     end
 
     --- Embed basic patterns. On success, modify  the matrix and return true
@@ -1563,7 +1573,7 @@ do
 
     function MatrixUtil:embedVerticalSeparationPattern(xStart, yStart, matrix)
         for y = 1, 7 do
-                matrix:set(xStart, yStart+y, self.VERTICAL_SEPARATION_PATTERN[y][1]);
+            matrix:set(xStart, yStart+y, self.VERTICAL_SEPARATION_PATTERN[y][1]);
         end
     end
 
@@ -1631,6 +1641,7 @@ end
 --------------------------------------------------------
 do
     function MaskUtil:applyMaskPenaltyRule1(matrix)
+      print(self:applyMaskPenaltyRule1Internal(matrix, true))
         return self:applyMaskPenaltyRule1Internal(matrix, true) + self:applyMaskPenaltyRule1Internal(matrix, false)
     end
 
@@ -1656,7 +1667,7 @@ do
         for i = 1, iLimit do
             for j = 1, jLimit do
                 local b = isHorizontal and array[i][j] or array[j][i];
-                if bit == prevBit then
+                if b == prevBit then
                     numSamebitCells = numSamebitCells + 1;
                     if numSamebitCells == 5 then
                         panalty = panalty + 3
@@ -1693,7 +1704,6 @@ do
     local function calcMaskPenalty(matrix)
         local panalty = 0;
         panalty = panalty + MaskUtil:applyMaskPenaltyRule1(matrix)
-        print(panalty)
     end
 
     function Encode:New(contents, ecLevel, hints, qrcode)
@@ -1997,7 +2007,6 @@ do
             local panalty = calcMaskPenalty(matrix);
         end
         return bestMaskPattern;
-        
     end
 end
 
