@@ -959,3 +959,64 @@ do
         arraycopy(coefficients, 1, toEncode, dataBytes+numZeroCoefficients + 1, #coefficients)
     end
 end
+
+---------------------------------------------------
+-- Error Correction 
+---------------------------------------------------
+do
+do
+    ErrorCorrectionLevel.prototype = {};
+    local ErrorCorrectionLevel_MT = {__index = ErrorCorrectionLevel.prototype}
+
+    -- This enum encapsulates the four error correction levels defined 
+    -- by the QRCode standard.
+    function ErrorCorrectionLevel:New(ordinal, bits, name)
+        check(1, ordinal, "number");
+        check(2, bits, "number");
+        check(3, name, "string");
+        local newObj = setmetatable({}, ErrorCorrectionLevel_MT);
+        newObj.ordinal = ordinal;
+        newObj.bits = bits;
+        newObj.name = name;
+        return newObj
+    end
+
+    function ErrorCorrectionLevel.prototype:Ordinal()
+        check(1, self, "table");
+        return self.ordinal
+    end
+
+    function ErrorCorrectionLevel.prototype:getBits()
+        check(1, self, "table");
+        return self.bits
+    end
+
+    function ErrorCorrectionLevel.prototype:getName()
+        check(1, self, "table")
+        return self.name
+    end
+    
+    local FORBITS = {};
+
+    function ErrorCorrectionLevel:forBits(bits)
+        check(1, bits, "number")
+        if bits < 0 or bits > #FORBITS then
+            return
+        end
+        return FORBITS[bits]
+    end
+
+    do
+        -- L = ~7% correction
+        local L = ErrorCorrectionLevel:New(0, 0x01, "L")
+        -- M = ~15%
+        local M= ErrorCorrectionLevel:New(1, 0x00, "M")
+        -- Q = ~25%
+        local Q = ErrorCorrectionLevel:New(2, 0x02, "Q")
+        -- H ~= 30%
+        local H = ErrorCorrectionLevel:New(3, 0x03, "H")
+        ECList = { ["L"]= L, ["M"] = M, ["Q"] = Q, ["H"] = H }
+        FORBITS = {L, M, Q, H}
+        ErrorCorrectionLevel.ECList = ECList;
+    end
+end
