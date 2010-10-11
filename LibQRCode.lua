@@ -1396,7 +1396,6 @@ end
 do
     MatrixUtil.prototype = {}
     local MatrixUtil_MT = {__index = MatrixUtil.prototype};
-    MatrixUtil = setmetatable({}, MatrixUtil_MT);
 
     function MatrixUtil:New()
         return setmetatable({}, MatrixUtil_MT);
