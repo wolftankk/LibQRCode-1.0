@@ -134,6 +134,27 @@ local function toByte(value)
     end
 end
 
+local function tryCatch(try, catch)
+    check(1, try, "function");
+    check(2, catch, "function");
+
+    local error_msg;
+    local function wrap(status, ...)
+        if status then
+            return ...
+        else
+            if catch(error_msg) == true then
+                error(error_msg, 2)
+            end
+            return
+        end
+    end
+
+    return wrap(xpcall(try, function(e)
+        error_msg = e 
+    end))
+end
+
 local QRCode = {}
 local BitArray = {}
 local BlockPair = {};
@@ -1018,5 +1039,290 @@ do
         ECList = { ["L"]= L, ["M"] = M, ["Q"] = Q, ["H"] = H }
         FORBITS = {L, M, Q, H}
         ErrorCorrectionLevel.ECList = ECList;
+    end
+end
+
+-----------------------------------------------
+--ECB method class
+-----------------------------------------------
+do
+    ECB.prototype = {};
+    local ECB_MT = { __index = ECB.prototype }
+
+    --- Encapsualtes the parameters for one error-correction block in one symbol version.
+    -- This includes the number of data codewords, and the number of times a block with these
+    -- paramers is used consecutively in the QRCode version's format.
+    function ECB:New(count, dataCodewords)
+        check(1, count, "number");
+        check(1, dataCodewords, "number");
+        local newObj = setmetatable({}, ECB_MT);
+        newObj.count = count;
+        newObj.dataCodewords = dataCodewords;
+        return newObj;
+    end
+
+    function ECB.prototype:getCount()
+        check(1, self, "table")
+        return self.count;
+    end
+
+    function ECB.prototype:getDataCodewords()
+        check(1, self, "table")
+        return self.dataCodewords;
+    end
+end
+
+-----------------------------------------------
+-- ECBlocks method class
+-----------------------------------------------
+do
+    ECBlocks.prototype = {};
+    local ECBlocks_MT = { __index = ECBlocks.prototype }
+    function ECBlocks:New(ecCodewordsPerBlock, ...)
+        local newObj = setmetatable({}, ECBlocks_MT);
+        newObj.ecCodewordsPerBlock = ecCodewordsPerBlock;
+        newObj.ecBlocks = {...};
+        return newObj;
+    end
+
+    function ECBlocks.prototype:getECCodewordsPerBlock()
+        check(1, self, "table")
+        return self.ecCodewordsPerBlock;
+    end
+
+    function ECBlocks.prototype:getNumBlocks()
+        check(1, self, "table")
+        local total = 0;
+        for i = 1, #self.ecBlocks do
+            total = total + self.ecBlocks[i]:getCount();
+        end
+        return total
+    end
+
+    function ECBlocks.prototype:getTotalECCodewords()
+        check(1, self, "table")
+        return self.ecCodewordsPerBlock * self:getNumBlocks();
+    end
+
+    function ECBlocks.prototype:getECBlocks()
+        check(1, self, "table")
+        return self.ecBlocks;
+    end
+end
+
+-----------------------------------------------
+-- Version method class
+-----------------------------------------------
+do
+    Version.prototype = {}
+    local Version_MT = { __index = Version.prototype };
+
+    local VERSION_DECODE_INFO = {
+      0x07C94, 0x085BC, 0x09A99, 0x0A4D3, 0x0BBF6,
+      0x0C762, 0x0D847, 0x0E60D, 0x0F928, 0x10B78,
+      0x1145D, 0x12A17, 0x13532, 0x149A6, 0x15683,
+      0x168C9, 0x177EC, 0x18EC4, 0x191E1, 0x1AFAB,
+      0x1B08E, 0x1CC1A, 0x1D33F, 0x1ED75, 0x1F250,
+      0x209D5, 0x216F0, 0x228BA, 0x2379F, 0x24B0B,
+      0x2542E, 0x26A64, 0x27541, 0x28C69
+    };
+
+    function Version:New(versionNumber, alignmentPatternCenters, ...)
+        check(1, versionNumber, "number");
+        check(2, alignmentPatternCenters, "table");
+
+        local newObj = setmetatable({}, Version_MT);
+        newObj.versionNumber = versionNumber;
+        newObj.alignmentPatternCenters = alignmentPatternCenters;
+        newObj.ecBlocks = {...};
+        local total = 0;
+        local ecBlocks1, ecBlocks2, ecBlocks3, ecBlocks4 = ...;
+        local ecCodewords = ecBlocks1:getECCodewordsPerBlock();
+        local ecbArray = ecBlocks1:getECBlocks();
+        for i = 1, #ecbArray do
+            local ecBlock = ecbArray[i];
+            total = total + ecBlock:getCount() * (ecBlock:getDataCodewords() + ecCodewords);
+        end
+        newObj.totalCodewords = total;
+        return newObj
+    end
+
+    function Version.prototype:getVersionNumber()
+        return self.versionNumber
+    end
+
+    function Version.prototype:getAlignmentPatternCenters()
+        return self.alignmentPatternCenters
+    end
+
+    function Version.prototype:getTotalCodewords()
+        return self.totalCodewords;
+    end
+
+    function Version.prototype:getDimensionForVersion()
+        return QRCODE_MATRIX + QRCODE_MATRIX_PER_VERSION * self.versionNumber;
+    end
+
+    function Version.prototype:getECBlocksForLevel(ecLevel)
+        return self.ecBlocks[ecLevel:Ordinal() + 1]
+    end
+
+    --- Deduce version information purely for the QRCode dimensions.
+    --
+    -- @param dimension dimension in modules;
+    -- @return Version for a QRCode of that dimension;
+    function Version.prototype:getProvisionalVersionForDimension(dimension)
+        if (dimension % 4 ~= 1) then
+            error("dimension is error", 2);
+        end
+        return self:getVersionForNumber(bit.rshift((dimension - 17), 2)); 
+    end
+
+    function Version:getVersionForNumber(versionNumber)
+        if (versionNumber < 1 or versionNumber > 40) then
+            error("version number is invaild value", 2);
+        end
+        return VERSIONS[versionNumber];
+    end
+
+    do
+        --see ISO 180004:2006 6.5.1 table 9
+        VERSIONS = {
+          Version:New(1, {},      ECBlocks:New(7, ECB:New(1, 19)),
+                                  ECBlocks:New(10, ECB:New(1, 16)),
+                                  ECBlocks:New(13, ECB:New(1, 13)), 
+                                  ECBlocks:New(17, ECB:New(1, 9)) 
+          ),--1
+          Version:New(2, {6, 18}, ECBlocks:New(10, ECB:New(1, 34)), 
+                                  ECBlocks:New(16, ECB:New(1, 28)),
+                                  ECBlocks:New(22, ECB:New(1, 22)), 
+                                  ECBlocks:New(28, ECB:New(1, 16))
+          ),--2
+          Version:New(3, {6, 22}, ECBlocks:New(15, ECB:New(1, 55)),
+                                  ECBlocks:New(26, ECB:New(1, 44)),
+                                  ECBlocks:New(18, ECB:New(2, 17)),
+                                  ECBlocks:New(22, ECB:New(2, 13))
+          ),--3
+          Version:New(4, {6, 26}, ECBlocks:New(20, ECB:New(1, 80)),
+                                  ECBlocks:New(18, ECB:New(2, 32)), 
+                                  ECBlocks:New(26, ECB:New(2, 24)),
+                                  ECBlocks:New(16, ECB:New(4, 9))
+          ),--4
+          Version:New(5, {6, 30}, ECBlocks:New(26, ECB:New(1, 108)),
+                                  ECBlocks:New(24, ECB:New(2, 43)),
+                                  ECBlocks:New(18, ECB:New(2, 15), ECB:New(2, 16)),
+                                  ECBlocks:New(22, ECB:New(2, 11), ECB:New(2, 12))
+          ),--5
+          Version:New(6, {6, 34}, ECBlocks:New(18, ECB:New(2, 68)),
+                                  ECBlocks:New(16, ECB:New(4, 27)),
+                                  ECBlocks:New(24, ECB:New(4, 19)),
+                                  ECBlocks:New(28, ECB:New(4, 15))
+          ),--6
+          Version:New(7, {6, 22, 38}, ECBlocks:New(20, ECB:New(2, 78)),
+                                      ECBlocks:New(18, ECB:New(4, 31)),
+                                      ECBlocks:New(18, ECB:New(2, 14), ECB:New(4, 15)),
+                                      ECBlocks:New(26, ECB:New(4, 13), ECB:New(1, 14))
+          ),--7
+          Version:New(8, {6, 24, 42}, ECBlocks:New(24, ECB:New(2, 97)),
+                                      ECBlocks:New(22, ECB:New(2, 38), ECB:New(2, 39)),
+                                      ECBlocks:New(22, ECB:New(4, 18), ECB:New(2, 19)),
+                                      ECBlocks:New(26, ECB:New(4, 14), ECB:New(2, 15))
+          ),--8
+          Version:New(9, {6, 26, 46}, ECBlocks:New(30, ECB:New(2, 116)),
+                                      ECBlocks:New(22, ECB:New(3, 36), ECB:New(2, 37)),
+                                      ECBlocks:New(20, ECB:New(4, 16), ECB:New(4, 17)),
+                                      ECBlocks:New(24, ECB:New(4, 12), ECB:New(4, 13))
+          ),--9
+          Version:New(10, {6, 28, 50}, ECBlocks:New(18, ECB:New(2, 68), ECB:New(2, 69)),
+                                       ECBlocks:New(26, ECB:New(4, 43), ECB:New(1, 44)),
+                                       ECBlocks:New(24, ECB:New(6, 19), ECB:New(2, 20)),
+                                       ECBlocks:New(28, ECB:New(6, 15), ECB:New(2, 16))
+          ),--10
+        }
+    end
+end
+
+------------------------------------------------
+-- Mode method class
+------------------------------------------------
+do
+    Mode.prototype = {};
+    Mode_MT = {__index = Mode.prototype}
+
+    function Mode:New(versions, bits, name)
+        local newObj = setmetatable({}, Mode_MT)
+        newObj.characterCountBitsForVersions = versions;
+        newObj.bits = bits;
+        newObj.name = name;
+        return newObj
+    end
+
+    function Mode.prototype:forBits(bits)
+        if bits == 0x00 then
+            return Mode.TERMINATOR
+        elseif bits == 0x01 then
+            return Mode.NUMERIC
+        elseif bits == 0x02 then
+            return Mode.ALPHANUMERIC;
+        elseif bits == 0x03 then
+            return Mode.STRUCTURED_APPED;
+        elseif bits == 0x04 then
+            return Mode.BYTE;
+        elseif bits == 0x05 then
+            return Mode.FNC1_FIRST_POSITION;
+        elseif bits == 0x07 then
+            return Mode.ECI
+        elseif bits == 0x08 then
+            return Mode.KANJI;
+        elseif bits == 0x09 then
+            return Mode.FNC1_SECOND_POSITION;
+        else
+            error("bits is invaild value, not the mode",2);
+        end
+    end
+    Mode.forBits = Mode.prototype.forBits
+
+    --- get character count bit for versions
+    --  the count of characters that will follow encoded in this
+    -- @param version  version in question
+    -- @return  number of bits used, in this QRCode symbol. to encode
+    function Mode.prototype:getCharacterCountBits(version)
+        check(1, self, "table");
+        check(2, version, "number");
+        if self.characterCountBitsForVersions == nil then
+            error("LibQRCode-1.0: Character count doesnt apply to this mode.");
+        end
+        local number = version:getVersionNumber();
+        local offset;
+        if number <= 9 then
+            offset = 1
+        elseif number <= 26 then
+            offset = 2;
+        else
+            offset = 3;
+        end
+        return self.characterCountBitsForVersions[offset];
+    end
+
+    function Mode.prototype:getBits()
+        check(1, self, "table");
+        return self.bits;
+    end
+
+    function Mode.prototype:getName()
+        check(1, self, "table");
+        return self.name;
+    end
+
+    do
+        Mode.TERMINATOR = Mode:New({0, 0, 0}, 0x00, "TERMINATOR")
+        Mode.NUMERIC = Mode:New({10, 12, 14}, 0x01, "NUMERIC")
+        Mode.ALPHANUMERIC = Mode:New({9, 11, 13}, 0x02, "ALPHANUMERIC");
+        Mode.STRUCTURED_APPED = Mode:New({0, 0, 0}, 0x03, "STRUCTURED_APPED");--not suppered
+        Mode.BYTE = Mode:New({8, 16, 16}, 0x04, "BYTE");
+        Mode.ECI = Mode:New(nil, 0x07, "ECI");--dont apply
+        Mode.KANJI = Mode:New({8, 10, 12}, 0x08, "KANJI");--arsia charsets
+        Mode.FNC1_FIRST_POSITION = Mode:New(nil, 0x05, "FNC1_FIRST_POSITION");
+        Mode.FNC1_SECOND_POSITION = Mode:New(nil, 0x09, "FNC1_SECOND_POSITION");
     end
 end
