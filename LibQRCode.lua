@@ -1518,7 +1518,46 @@ do
     end
 
     function MatrixUtil:makeTypeInfoBits(ecLevel, maskPattern, typeInfoBits)
-        
+        if not QRCode:isValidMaskPattern(maskPattern) then
+            error("Invalid mask pattern", 2)
+        end
+
+        local typeinfo = bit.bor(bit.lshift(ecLevel:getBits(), 3), maskPattern);
+        bits:appendBits(typeinfo, 5)
+        local bchCode = self:calculateBCHCode(typeinfo, MatrixUtil.TYPE_INFO_POLY);
+    end
+    
+    function MatrixUtil:findMSBSet(value)
+
+    end
+
+    -- Calculate BCH (Bose-Chaudhuri-Hocquenghem) code for "value" using polynomial "poly". The BCH
+    -- code is used for encoding type information and version information.
+    -- Example: Calculation of version information of 7.
+    -- f(x) is created from 7.
+    --   - 7 = 000111 in 6 bits
+    --   - f(x) = x^2 + x^1 + x^0
+    -- g(x) is given by the standard (p. 67)
+    --   - g(x) = x^12 + x^11 + x^10 + x^9 + x^8 + x^5 + x^2 + 1
+    -- Multiply f(x) by x^(18 - 6)
+    --   - f'(x) = f(x) * x^(18 - 6)
+    --   - f'(x) = x^14 + x^13 + x^12
+    -- Calculate the remainder of f'(x) / g(x)
+    --         x^2
+    --         __________________________________________________
+    --   g(x) )x^14 + x^13 + x^12
+    --         x^14 + x^13 + x^12 + x^11 + x^10 + x^7 + x^4 + x^2
+    --         --------------------------------------------------
+    --                              x^11 + x^10 + x^7 + x^4 + x^2
+    --
+    -- The remainder is x^11 + x^10 + x^7 + x^4 + x^2
+    -- Encode it in binary: 110010010100
+    -- The return value is 0xc94 (1100 1001 0100)
+    --
+    -- Since all coefficients in the polynomials are 1 or 0, we can do the calculation by bit
+    -- operations. We don't care if cofficients are positive or negative.
+    function MatrixUtil:calculateBCHCode(value, poly)
+
     end
 
     --- Embed basic patterns. On success, modify  the matrix and return true
