@@ -1519,12 +1519,68 @@ do
         self:embedBasicPatterns(version, matrix);
         --type infomation appear with any version
         self:embedTypeInfo(ecLevel, maskPattern, matrix);
-
+       
+        self:embedDataBits(dataBits, maskPattern, matrix);
     end
 
     function MatrixUtil:embedTypeInfo(ecLevel, maskPattern, matrix)
         local typeInfoBits = BitArray:New();
         self:makeTypeInfoBits(ecLevel, maskPattern, typeInfoBits)
+
+        for i = 1,  typeInfoBits:getSize() do
+            local b = typeInfoBits:get(typeInfoBits:getSize() - i )
+            local x1 = MatrixUtil.TYPE_INFO_COORDINATES[i][1];
+            local y1 = MatrixUtil.TYPE_INFO_COORDINATES[i][2];
+            matrix:set(x1 + 1, y1 + 1, b);
+            
+            if i < 8 then
+                local x2 = matrix:getWidth() - i;
+                local y2 = 8;
+                matrix:set(x2, y2 + 1, b)
+            else
+                local x2 = 8
+                local y2 = matrix:getHeight() -7 + (i - 8);
+                matrix:set(x2+1, y2, b)
+          end
+        end
+    end
+
+    function MatrixUtil:embedDataBits(dataBits, maskPattern, matrix)
+        local bitIndex, dirIcon = 1, -1;
+        local x = matrix:getWidth();
+        local y = matrix:getHeight();
+        while (x > 0) do
+            if x == 7 then
+                x = x - 1
+            end
+
+            while (y > 0 and y <= matrix:getHeight()) do
+                for i = 1, 2 do
+                    local xx = x - i;
+                    if matrix:get(xx, y) ~= -1 then
+                    end
+                    local b;
+                    if bitIndex <= dataBits:getSize() then
+                        b = dataBits:get(bitIndex)
+                        bitIndex = bitIndex + 1
+                    else
+                        b = false
+                    end
+
+                    if maskPattern ~= -1 then
+                        if MaskUtil:getDataMaskBit(maskPattern, xx, y) then
+                            b = not b;
+                        end                            
+                    end
+
+                    matrix:set(xx, y, b)
+                end
+                y = y + dirIcon
+            end
+            dirIcon = dirIcon - dirIcon
+            y = y + dirIcon
+            x = x - 2
+        end
     end
 
     function MatrixUtil:makeTypeInfoBits(ecLevel, maskPattern, bits)
@@ -1714,7 +1770,7 @@ end
 --------------------------------------------------------
 do
     function MaskUtil:applyMaskPenaltyRule1(matrix)
-      print(self:applyMaskPenaltyRule1Internal(matrix, true))
+        print(self:applyMaskPenaltyRule1Internal(matrix, true))
         return self:applyMaskPenaltyRule1Internal(matrix, true) + self:applyMaskPenaltyRule1Internal(matrix, false)
     end
 
@@ -1728,6 +1784,37 @@ do
 
     function MaskUtil:applyMaskPenaltyRule4()
 
+    end
+        
+    function MaskUtil:getDataMaskBit(maskPattern, x, y)
+        if not QRCode:isValidMaskPattern(maskPattern) then
+            error("invaild maskpattern",2)
+        end
+        local mediate, temp;
+        if maskPattern == 0 then
+            mediate = bit.band((y + x), 0x1)
+        elseif maskPattern == 1 then
+            mediate = bit.band(y, 0x1)
+        elseif maskPattern == 2 then
+            mediate = x % 3
+        elseif maskPattern == 3 then
+            mediate = (y + x) % 3
+        elseif maskPattern == 4 then
+            mediate = bit.band((bit.arshift(y, 1)  + (x /3)), 0x1)
+        elseif maskPattern == 5 then
+            temp = y * x;
+            mediate = bit.band(temp, 0x1) + (temp % 3); 
+        elseif maskPattern == 6 then
+            temp = y * x
+            mediate = bit.band((bit.band(temp, 0x01) + (temp % 3)), 0x1);
+        elseif maskPattern == 7 then
+            temp = y * x
+            mediate = bit.band( ((temp % 3)  + bit.band((y+x), 0x1)), 0x1 )
+        else
+            error("Invalid mask pattern: "..maskPattern, 2)
+        end
+
+        return (mediate == 0)
     end
 
     function MaskUtil:applyMaskPenaltyRule1Internal(matrix, isHorizontal)
@@ -1819,6 +1906,12 @@ do
         -- setup 7: choose the mask pattern and set to "qrCode"
         local matrix = bMatrix:New(qrcode:GetMatrixWidth(), qrcode:GetMatrixWidth()); 
         qrcode:SetMaskPattern(newObj:chooseMaskPattern(finalBits, qrcode:GetECLevel(), qrcode:GetVersion(), matrix)); 
+
+        -- setup 8 build the matrix and set it to qrcode
+        --MatrixUtil:buildMatrix(finalBits, qrcode:GetECLevel(), qrcode:GetVersion(), qrcode:GetMaskPattern(), matrix)
+        --qrcode:SetMatrix(matrix);
+        
+        return newObj
     end
    
     --- getAlphanumericCode 
