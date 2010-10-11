@@ -7,4 +7,4 @@
 ## X-Compatible-With: 40000
 
 LibStub\LibStub.lua
-LibQRCode.lua
+lib.xml
