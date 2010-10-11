@@ -1514,7 +1514,6 @@ do
 
     function MatrixUtil:buildMatrix(dataBits, ecLevel, version, maskPattern, matrix)
         self:clearMatrix(matrix);
-
         --embeds base patterns
         self:embedBasicPatterns(version, matrix);
         --type infomation appear with any version
@@ -1556,28 +1555,28 @@ do
 
             while (y > 0 and y <= matrix:getHeight()) do
                 for i = 1, 2 do
-                    local xx = x - i;
-                    if matrix:get(xx, y) ~= -1 then
-                    end
-                    local b;
-                    if bitIndex <= dataBits:getSize() then
-                        b = dataBits:get(bitIndex)
-                        bitIndex = bitIndex + 1
-                    else
-                        b = false
-                    end
+                    local xx = x - i + 1;
+                    if matrix:get(xx, y) == -1 then
+                        local b;
+                        if bitIndex <= dataBits:getSize() then
+                            b = dataBits:get(bitIndex)
+                            bitIndex = bitIndex + 1
+                        else
+                            b = false
+                        end
 
-                    if maskPattern ~= -1 then
-                        if MaskUtil:getDataMaskBit(maskPattern, xx, y) then
-                            b = not b;
-                        end                            
+                        if maskPattern ~= -1 then
+                            if MaskUtil:getDataMaskBit(maskPattern, xx, y) then
+                                b = not b;
+                            end                            
+                        end
+                        
+                        matrix:set(xx, y, b)
                     end
-
-                    matrix:set(xx, y, b)
                 end
                 y = y + dirIcon
             end
-            dirIcon = dirIcon - dirIcon
+            dirIcon = -dirIcon
             y = y + dirIcon
             x = x - 2
         end
@@ -1770,7 +1769,6 @@ end
 --------------------------------------------------------
 do
     function MaskUtil:applyMaskPenaltyRule1(matrix)
-        print(self:applyMaskPenaltyRule1Internal(matrix, true))
         return self:applyMaskPenaltyRule1Internal(matrix, true) + self:applyMaskPenaltyRule1Internal(matrix, false)
     end
 
@@ -1905,11 +1903,11 @@ do
         newObj:interLeaveWithECBytes(headerAndDataBits, qrcode:GetNumTotalBytes(), qrcode:GetNumDataBytes(), qrcode:GetNumRSBlocks(), finalBits); 
         -- setup 7: choose the mask pattern and set to "qrCode"
         local matrix = bMatrix:New(qrcode:GetMatrixWidth(), qrcode:GetMatrixWidth()); 
-        qrcode:SetMaskPattern(newObj:chooseMaskPattern(finalBits, qrcode:GetECLevel(), qrcode:GetVersion(), matrix)); 
-
+        --qrcode:SetMaskPattern(newObj:chooseMaskPattern(finalBits, qrcode:GetECLevel(), qrcode:GetVersion(), matrix)); 
+        qrcode:SetMaskPattern(2)
         -- setup 8 build the matrix and set it to qrcode
-        --MatrixUtil:buildMatrix(finalBits, qrcode:GetECLevel(), qrcode:GetVersion(), qrcode:GetMaskPattern(), matrix)
-        --qrcode:SetMatrix(matrix);
+        MatrixUtil:buildMatrix(finalBits, qrcode:GetECLevel(), qrcode:GetVersion(), qrcode:GetMaskPattern(), matrix)
+        qrcode:SetMatrix(matrix);
         
         return newObj
     end
@@ -2200,7 +2198,7 @@ do
         end
         local code = QRCode:New();
         Encode:New(contents, ecLevel, hints, code);
-        --newObj:renderResult(code, width, height);
+        newObj:renderResult(code, width, height);
         return newObj
     end
 
@@ -2264,7 +2262,7 @@ do
                 elseif c == 0 then
                     tex:SetVertexColor(1, 1, 1);
                 else
-                    tex:SetVertexColor(1, 0, 0, 0.6);
+                    --tex:SetVertexColor(1, 0, 0, 0.6);
                 end
             end
         end
