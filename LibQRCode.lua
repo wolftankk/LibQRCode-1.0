@@ -1326,3 +1326,68 @@ do
         Mode.FNC1_SECOND_POSITION = Mode:New(nil, 0x09, "FNC1_SECOND_POSITION");
     end
 end
+
+------------------------------------------------
+-- byte matrix class method
+------------------------------------------------
+do
+    bMatrix.prototype = {}
+    local bMatrix_MT = { __index = bMatrix.prototype}
+    --- Construct and return a new bMatrix object 
+    -- bytes is 2meta table. save y-x value 
+    -- @param width value
+    -- @param height value
+    -- @usage bMatrix:New(21, 21)
+    function bMatrix:New(width, height)
+        local newObj = setmetatable({}, bMatrix_MT);
+        newObj.width = width;
+        newObj.height = height;
+        newObj.bytes = {};
+        for h = 1, height do
+            for w = 1, width do
+                if (newObj.bytes[h] == nil) or (type(newObj.bytes[h]) ~= "table") then
+                    newObj.bytes[h] = {}
+                end
+                newObj.bytes[h][w] = 0
+            end
+        end
+        return newObj
+    end
+
+    function bMatrix.prototype:getHeight()
+        return self.height;
+    end
+
+    function bMatrix.prototype:getWidth()
+        return self.width;
+    end
+
+    function bMatrix.prototype:getTable()
+        return self.bytes;
+    end
+
+    function bMatrix.prototype:get(x, y)
+        return toByte(self.bytes[y][x]);
+    end
+
+    function bMatrix.prototype:set(x, y, value)
+        check(1, x, "number")
+        check(2, y , "number");
+        check(3, value, "number", "boolean");
+        if type(value) == "boolean" then
+            self.bytes[y][x] = value and 1 or 0;
+        else
+            self.bytes[y][x] = value;
+        end
+    end
+
+    function bMatrix.prototype:clear(value)
+        local value = toByte(value);
+        for y = 1, self.height do
+            for x = 1, self.width do
+                self.bytes[y][x] = value;
+            end
+        end
+    end
+end
+
