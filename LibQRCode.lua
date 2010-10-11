@@ -640,14 +640,14 @@ do
         local coefficientsLength = #coefficients
         
         if (coefficientsLength > 1 and coefficients[1] == 0) then
-            local firstNonZore = 1;
+            local firstNonZore = 2;
             while (firstNonZore < coefficientsLength and coefficients[firstNonZore] == 0) do
                 firstNonZore = firstNonZore + 1;
             end
             if firstNonZore == coefficientsLength then
                 newObj.coefficients = (field:getZero()).coefficients;
             else
-                newObj.coefficients = new(coefficientsLength - firstNonZore);
+                newObj.coefficients = new(coefficientsLength - firstNonZore + 1);
                 arraycopy(coefficients, firstNonZore, newObj.coefficients, 0, #newObj.coefficients);
             end
         else
@@ -674,7 +674,7 @@ do
     --- @return coefficient of x^degree term in this polynomial
     function GF256Poly.prototype:getCoefficient(degree)
 	check(1, self, "table")
-        return self.coefficients[#self.coefficients - 1 - degree]
+        return self.coefficients[#self.coefficients  - degree]
     end
 
     ---@return evaluation of this polynomial at a given point
@@ -715,7 +715,7 @@ do
 
         local smaller = self.coefficients;
         local larger = other.coefficients;
-        
+
         if #smaller > #larger then
             local t = smaller;
             smaller = larger;
@@ -875,7 +875,6 @@ do
         if coefficient == 0 then
             return self.zero;
         end
-
         local coefficients = new(degree + 1);
         coefficients[1] = coefficient;
         return GF256Poly:New(self, coefficients);
@@ -1287,7 +1286,7 @@ do
     -- @return  number of bits used, in this QRCode symbol. to encode
     function Mode.prototype:getCharacterCountBits(version)
         check(1, self, "table");
-        check(2, version, "number");
+        check(2, version, "table");
         if self.characterCountBitsForVersions == nil then
             error("LibQRCode-1.0: Character count doesnt apply to this mode.");
         end
@@ -1628,6 +1627,292 @@ do
 end
 
 --------------------------------------------------------
+-- Encode method class
+--------------------------------------------------------
+do
+    local ALPHANUMERIC_TABLE = {
+        -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, --0x00-0x0f
+        -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, --0x10-0x1f
+        36, -1, -1, -1, 37, 38, -1, -1, -1, -1, 39, 40, -1, 41, 42, 43,  -- 0x20-0x2f
+        0,   1,  2,  3,  4,  5,  6,  7,  8,  9, 44, -1, -1, -1, -1, -1,  -- 0x30-0x3f
+        -1, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24,  -- 0x40-0x4f
+        25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, -1, -1, -1, -1, -1   -- 0x50-0x5f
+    }
+
+    Encode.prototype = {}
+    local Encode_MT = {__index = Encode.prototype}
+    
+    function Encode:New(contents, ecLevel, hints, qrcode)
+        check(1, contents, "string");
+        check(2, ecLevel, "table");
+        check(3, hints, "table", "nil");
+        check(4, qrcode, "table");
+        
+        local newObj = setmetatable({}, Encode_MT);
+        local encoding = "";
+        if hints == nil then
+            encoding = "utf8";
+        end
+       
+        --setup 1: choose the mode(encoding);
+        local mode = newObj:chooseMode(contents, encoding)
+        --setup 2: append bytes into dataBits in approprise encoding        
+        local dataBits = BitArray:New();
+        newObj:appendBytes(contents, mode, dataBits, encoding);
+        -- setup 3: initialize QRCode that can contain "dataBites"
+        local numInputsBytes = dataBits:getSizeInBytes();
+        newObj:initQRCode(numInputsBytes, ecLevel, mode, qrcode);
+        
+        -- setup 4: build another bit vector that contains header and data
+        local headerAndDataBits = BitArray:New();
+        
+        -- setup 4.5: append ECI message if applicale
+        if (mode == Mode.BYTE) then
+            --TODO: donothing now.
+        end
+        newObj:appendModeInfo(mode, headerAndDataBits)
+        local numLetters = (mode == Mode.BYTE) and dataBits:getSizeInBytes() or #contents;
+        newObj:appendLengthInfo(numLetters, qrcode:GetVersion(), mode, headerAndDataBits);
+        headerAndDataBits:appendBitArray(dataBits);
+        -- setup 5: terminate the bits properly
+        newObj:terminateBits(qrcode:GetNumDataBytes(), headerAndDataBits);
+        -- setup 6: interleave data bits with error correction code;
+        local finalBits = BitArray:New();
+        newObj:interLeaveWithECBytes(headerAndDataBits, qrcode:GetNumTotalBytes(), qrcode:GetNumDataBytes(), qrcode:GetNumRSBlocks(), finalBits); 
+    end
+   
+    --- getAlphanumericCode 
+    -- @return the code point of the table used in alphanumeric mode
+    -- or -1 if there is no corresponding code in the table
+    function Encode.prototype:getAlphanumericCode(c)
+        local code = string.byte(c);
+        if code <= #ALPHANUMERIC_TABLE then
+            return (ALPHANUMERIC_TABLE[code + 1])
+        end
+        return -1;
+    end
+
+    function Encode.prototype:chooseMode(contents, encoding)
+        check(1, contents, "string");
+        check(2, encoding, "string", "nil");
+
+        local hasNumeric = false;
+        local hasAlphanumeric = false;
+        for i = 1, #contents do
+            local c = string.sub(contents, i, i);
+            if (c >= '0' and c <= '9') then
+                hasNumeric = true;
+            elseif self:getAlphanumericCode(c) ~= -1 then
+                hasAlphanumeric = true;
+            else
+                return Mode.BYTE;
+            end
+        end
+        
+        if hasAlphanumeric then
+            return Mode.ALPHANUMERIC;
+        elseif hasNumeric then
+            return Mode.NUMERIC;
+        end
+
+        return Mode.BYTE;
+        
+    end
+
+    function Encode.prototype:appendBytes(content, mode, bits, encoding)
+        if mode == Mode.NUMERIC then
+            self:appendNumericBytes(content, bits)
+        elseif mode == Mode.ALPHANUMERIC then
+
+        elseif mode == Mode.BYTE then
+
+        end
+    end
+
+    function Encode.prototype:appendNumericBytes(content, bits)
+        local len = #content;
+        local i = 0;
+        while i < len do
+            local num1 = string.sub(content, i+1, i+1);
+            if (i + 2 < len) then
+                --encode three numberic letters in ten bits
+                local num2 = string.sub(content, i + 2, i + 2);
+                local num3 = string.sub(content, i + 3, i + 3);
+                bits:appendBits(num1 * 100 + num2 * 10 + num3 , 10);
+                i = i + 3;
+            elseif (i + 1 < len) then
+                local num2 = string.sub(content, i + 2, i +2);
+                bits:appendBits(num1 * 10 + num2, 7);
+                i = i + 2;
+            else
+                bits:appendBits(num1, 4)
+                i = i + 1;
+            end
+        end
+    end
+    
+    function Encode.prototype:appendModeInfo(mode, bits)
+        bits:appendBits(mode:getBits(), 4)
+    end
+
+    function Encode.prototype:appendLengthInfo(numLetters, version, mode, bits)
+        local numBits = mode:getCharacterCountBits(Version:getVersionForNumber(version));
+        if (numLetters > (bit.lshift(1, numBits) - 1)) then
+            error(numLetters .. " is bigger than" .. ( bit.lshift(1, numBits) -1 ), 2);
+        end
+        bits:appendBits(numLetters, numBits);
+    end
+
+    function Encode.prototype:initQRCode(numInputsBytes, ecLevel, mode, qrcode)
+        qrcode:SetECLevel(ecLevel);
+        qrcode:SetMode(mode);
+
+        for versionNum = 1, MAX_QRCODER_VERSIONS  do
+            local version = Version:getVersionForNumber(versionNum) 
+            local numBytes = version:getTotalCodewords();
+            local ecBlocks = version:getECBlocksForLevel(ecLevel);
+            local numECBytes = ecBlocks:getTotalECCodewords();
+            local numRSBlocks = ecBlocks:getNumBlocks();
+
+            local numDataBytes = numBytes - numECBytes;
+
+            if (numDataBytes >= (numInputsBytes + 3)) then
+                qrcode:SetVersion(versionNum);
+                qrcode:SetNumTotalBytes(numBytes);
+                qrcode:SetNumDataBytes(numDataBytes);
+                qrcode:SetNumRSBlocks(numRSBlocks);
+                qrcode:SetNumECBytes(numECBytes);
+                qrcode:SetMatrixWidth(version:getDimensionForVersion());
+                return;
+            end 
+        end
+        error("Cannot find proper rs block info (maybe input data too big?)", 2)
+    end
+    
+    function Encode.prototype:terminateBits(numDataBytes, bits)
+        local capacity = bit.lshift(numDataBytes, 3);
+        
+        if (bits:getSize() > capacity) then
+            error("The data bits cannot fit in the QRCode ".. bits:getSize(), 2);
+        end
+        local i = 0;
+        while (i < 4 and bits:getSize() < capacity) do
+            bits:appendBit(false)
+            i = i + 1;
+        end
+        local numBitsInLastByte = bit.band(bits:getSize(), 0x07);
+        if (numBitsInLastByte > 0) then
+            for n = numBitsInLastByte, 7, 1 do
+                bits:appendBit(false)
+            end
+        end
+
+        local numPaddingBytes = numDataBytes - bits:getSizeInBytes();
+        for i = 0, numPaddingBytes - 1, 1 do
+            bits:appendBits((bit.band(i, 0x01) == 0) and 0xEC or 0x11, 8);
+        end
+
+        if (bits:getSize() ~= capacity) then
+            error("Bits size does not equal capacity", 2);
+        end
+    end
+
+    --- Interleave bits with corresponding error correction bytes.
+    -- On success, store the result in "result", The interleavel rule is
+    -- complicated. see 8.6 of JISX0510:2004 p 37 for details
+    function Encode.prototype:interLeaveWithECBytes(bits, numTotalBytes, numDataBytes, numRSBlocks, result)
+        if (bits:getSizeInBytes() ~= numDataBytes) then
+            error("Number of bits and data bytes does not match", 2);
+        end
+        
+        -- Setup 1. Divide data bytes into blocks and generate error correction bytes for them
+        -- We'll store the divided data bytes blocks and error correction bytes blocks into "blocks"
+        local dataBytesOffset, maxNumDataBytes, maxNumEcBytes = 0, 0, 0;
+
+        --since, we know the number of reedsolmon blocks. we can initialize the vector with the number
+        local blocks = {};
+        for i = 0, numRSBlocks - 1, 1 do
+            local numDataBytesInBlock, numEcBytesInBlock = {}, {};
+            self:getNumDataBytesAndNumECBytesForBlockID(numTotalBytes, numDataBytes, numRSBlocks, i, numDataBytesInBlock, numEcBytesInBlock);
+            local size = numDataBytesInBlock[1];
+            local dataBytes = new(size);
+            bits:toBytes(8 * dataBytesOffset, dataBytes, 0, size )
+            local ecBytes = self:generateECBytes(dataBytes, numEcBytesInBlock[1]);
+            tinsert(blocks, BlockPair:New(dataBytes, ecBytes));
+            maxNumDataBytes = math.max(maxNumDataBytes, size);
+            maxNumEcBytes = math.max(maxNumEcBytes, #ecBytes);
+            dataBytesOffset = dataBytesOffset + numDataBytesInBlock[1]
+          end
+
+          if numDataBytes ~= dataBytesOffset then
+            error("Data bytes does not match offset", 2)
+          end
+    end
+
+    function Encode.prototype:generateECBytes(dataBytes, numEcBytesInBlock)
+        check(1, dataBytes, "table");
+        check(2, numEcBytesInBlock, "number");
+        local numDataBytes = #dataBytes
+        local toEncode = new(numDataBytes + numEcBytesInBlock);
+        for i = 1, numDataBytes do
+            toEncode[i] = bit.band(dataBytes[i], 0xFF);
+        end
+        local RSEncoder = ReedSolomonEncoder:New(GF256.QR_CODE_FIELD);
+        RSEncoder:encode(toEncode, numEcBytesInBlock);
+
+        local ecBytes = new(numEcBytesInBlock);
+        for  i = 1, numEcBytesInBlock do
+            ecBytes[i] = (toByte(toEncode[i]))
+        end
+        return ecBytes
+    end
+
+    --- Get number of data bytes and number of error correction bytes for block id "blockID".
+    -- Store the result in "numDataBytesInBlock", and "numECBytesInBlocks".
+    -- see table 12 in 8.5.1 of JISX0510:2004 (p.30)
+    function Encode.prototype:getNumDataBytesAndNumECBytesForBlockID(numTotalBytes, numDataBytes, numRSBlocks, blockID, numDataBytesInBlock, numEcBytesInBlock)
+        if (blockID >= numRSBlocks) then
+            error("Block ID too large", 2);
+        end
+
+        local numRSBlocksInGroup2 = numTotalBytes % numRSBlocks;
+        local numRSBlocksInGroup1 = numRSBlocks - numRSBlocksInGroup2;
+
+        local numTotalBytesInGroup1 = numTotalBytes / numRSBlocks;
+        local numTotalBytesInGroup2 = numTotalBytesInGroup1 + 1;
+
+        local numDataBytesInGroup1 = numDataBytes / numRSBlocks;
+        local numDataBytesInGroup2 = numDataBytesInGroup1 + 1;
+
+        local numEcBytesInGroup1 = numTotalBytesInGroup1 - numDataBytesInGroup1;
+        local numEcBytesInGroup2 = numTotalBytesInGroup2 - numDataBytesInGroup2;
+
+        --sanity checks
+        if (numEcBytesInGroup1 ~= numEcBytesInGroup2) then
+            error("EC bytes mismatch", 2)
+        end
+
+        if (numRSBlocks ~= numRSBlocksInGroup1 + numRSBlocksInGroup2) then
+            error("RS blocks mismatch", 2);
+        end
+
+        if (numTotalBytes ~= ((numDataBytesInGroup1 + numEcBytesInGroup1) * numRSBlocksInGroup1) + ( (numDataBytesInGroup2 + numEcBytesInGroup2) * numRSBlocksInGroup2)) then
+            error("Total bytes mismatch", 2);
+        end
+        
+        if (blockID < numRSBlocksInGroup1) then
+            numDataBytesInBlock[1] = numDataBytesInGroup1;
+            numEcBytesInBlock[1] = numEcBytesInGroup1;
+        else
+            numDataBytesInBlock[1] = numDataBytesInGroup2;
+            numEcBytesInBlock[1] = numEcBytesInGroup2;
+        end
+    end
+    
+    
+end
+
+--------------------------------------------------------
 -- QRCodeWriter method class
 --------------------------------------------------------
 do
@@ -1648,8 +1933,8 @@ do
 
         end
         local code = QRCode:New();
-        --Encode:New(contents, ecLevel, hints, code);
-        newObj:renderResult(code, width, height);
+        Encode:New(contents, ecLevel, hints, code);
+        --newObj:renderResult(code, width, height);
         return newObj
     end
 
