@@ -1391,3 +1391,345 @@ do
     end
 end
 
+--------------------------------------------------------
+-- Matrix util
+--------------------------------------------------------
+do
+    MatrixUtil.prototype = {}
+    local MatrixUtil_MT = {__index = MatrixUtil.prototype};
+    MatrixUtil = setmetatable({}, MatrixUtil_MT);
+
+    function MatrixUtil:New()
+        return setmetatable({}, MatrixUtil_MT);
+    end
+
+    --constant
+    MatrixUtil.POSITION_DETECTION_PATTERN = {
+        {1, 1, 1, 1, 1, 1, 1},
+        {1, 0, 0, 0, 0, 0, 1},
+        {1, 0, 1, 1, 1, 0, 1},
+        {1, 0, 1, 1, 1, 0, 1},
+        {1, 0, 1, 1, 1, 0, 1},
+        {1, 0, 0, 0, 0, 0, 1},
+        {1, 1, 1, 1, 1, 1, 1},
+    }
+
+    MatrixUtil.POSITION_ADJUSTMENT_PATTERN = {
+        {1, 1, 1, 1, 1},
+        {1, 0, 0, 0, 1},
+        {1, 0, 1, 0, 1},
+        {1, 0, 0, 0, 1},
+        {1, 1, 1, 1, 1},
+    }
+
+    MatrixUtil.HORIZONTAL_SEPARATION_PATTERN = {
+        {0,0,0,0,0,0,0,0}
+    }
+
+    MatrixUtil.VERTICAL_SEPARATION_PATTERN = {
+        {0},{0},{0},{0},{0},{0},{0},{0},
+    }
+
+    --From Appendix E. Table 1, JIS0510X:2004 (p 71)
+    MatrixUtil.POSITION_ADJUSTMENT_PATTERN_COORDINATE_TABLE = {
+            {-1, -1, -1, -1,  -1,  -1,  -1},  -- Version 1
+            { 6, 18, -1, -1,  -1,  -1,  -1},  -- Version 2
+            { 6, 22, -1, -1,  -1,  -1,  -1},  -- Version 3
+            { 6, 26, -1, -1,  -1,  -1,  -1},  -- Version 4
+            { 6, 30, -1, -1,  -1,  -1,  -1},  -- Version 5
+            { 6, 34, -1, -1,  -1,  -1,  -1},  -- Version 6
+            { 6, 22, 38, -1,  -1,  -1,  -1},  -- Version 7
+            { 6, 24, 42, -1,  -1,  -1,  -1},  -- Version 8
+            { 6, 26, 46, -1,  -1,  -1,  -1},  -- Version 9
+            { 6, 28, 50, -1,  -1,  -1,  -1},  -- Version 10
+            { 6, 30, 54, -1,  -1,  -1,  -1},  -- Version 11
+            { 6, 32, 58, -1,  -1,  -1,  -1},  -- Version 12
+            { 6, 34, 62, -1,  -1,  -1,  -1},  -- Version 13
+            { 6, 26, 46, 66,  -1,  -1,  -1},  -- Version 14
+            { 6, 26, 48, 70,  -1,  -1,  -1},  -- Version 15
+            { 6, 26, 50, 74,  -1,  -1,  -1},  -- Version 16
+            { 6, 30, 54, 78,  -1,  -1,  -1},  -- Version 17
+            { 6, 30, 56, 82,  -1,  -1,  -1},  -- Version 18
+            { 6, 30, 58, 86,  -1,  -1,  -1},  -- Version 19
+            { 6, 34, 62, 90,  -1,  -1,  -1},  -- Version 20
+            { 6, 28, 50, 72,  94,  -1,  -1},  -- Version 21
+            { 6, 26, 50, 74,  98,  -1,  -1},  -- Version 22
+            { 6, 30, 54, 78, 102,  -1,  -1},  -- Version 23
+            { 6, 28, 54, 80, 106,  -1,  -1},  -- Version 24
+            { 6, 32, 58, 84, 110,  -1,  -1},  -- Version 25
+            { 6, 30, 58, 86, 114,  -1,  -1},  -- Version 26
+            { 6, 34, 62, 90, 118,  -1,  -1},  -- Version 27
+            { 6, 26, 50, 74,  98, 122,  -1},  -- Version 28
+            { 6, 30, 54, 78, 102, 126,  -1},  -- Version 29
+            { 6, 26, 52, 78, 104, 130,  -1},  -- Version 30
+            { 6, 30, 56, 82, 108, 134,  -1},  -- Version 31
+            { 6, 34, 60, 86, 112, 138,  -1},  -- Version 32
+            { 6, 30, 58, 86, 114, 142,  -1},  -- Version 33
+            { 6, 34, 62, 90, 118, 146,  -1},  -- Version 34
+            { 6, 30, 54, 78, 102, 126, 150},  -- Version 35
+            { 6, 24, 50, 76, 102, 128, 154},  -- Version 36
+            { 6, 28, 54, 80, 106, 132, 158},  -- Version 37
+            { 6, 32, 58, 84, 110, 136, 162},  -- Version 38
+            { 6, 26, 54, 82, 110, 138, 166},  -- Version 39
+            { 6, 30, 58, 86, 114, 142, 170},  -- Version 40
+    }
+
+    -- Type info cells at the left top corner.
+    MatrixUtil.TYPE_INFO_COORDINATES = {
+            {8, 0},
+            {8, 1},
+            {8, 2},
+            {8, 3},
+            {8, 4},
+            {8, 5},
+            {8, 7},
+            {8, 8},
+            {7, 8},
+            {5, 8},
+            {4, 8},
+            {3, 8},
+            {2, 8},
+            {1, 8},
+            {0, 8},
+    }
+
+    --From Appendix D in JISX0510:2004 (p. 67)
+    MatrixUtil.VERSION_INFO_POLY = 0x1f25 -- 1 111 1 0100 0101
+
+    --From Appendix C in JISX0510:2004 (p.65).
+    MatrixUtil.TYPE_INFO_POLY = 0x537;
+    MatrixUtil.TYPE_INFO_MASK_PATTERN = 0x5412;
+
+    function MatrixUtil.prototype:clearMatrix(matrix)
+        matrix:clear(-1)
+    end
+
+    function MatrixUtil.prototype:buildMatrix(dataBits, ecLevel, version, maskPattern, matrix)
+        self:clearMatrix(matrix);
+
+        --embeds base patterns
+        self:embedBasicPatterns(version, matrix);
+        --type infomation appear with any version
+        --self:embedTypeInfo(ecLevel, maskPattern, matrix);
+
+    end
+
+    --- Embed basic patterns. On success, modify  the matrix and return true
+    -- The basic patterns are:
+    -- Position detection patterns
+    -- Timing patterns
+    -- Dark dont at the left bottom corner
+    -- @param object version
+    -- @param object version
+    function MatrixUtil.prototype:embedBasicPatterns(version, matrix)
+        --first
+        -- lets get started with embedding big squares at corners
+        self:embedPositionDetectionPatternAndSquarators(matrix);
+            --then, embed the dark dot at the left bottom corner
+        self:embedDarkDotAtLeftBottomConer(matrix);
+            
+        self:embedTimingPatterns(matrix)
+    end
+
+    function MatrixUtil.prototype:embedTimingPatterns(matrix)
+        for i = 8, matrix:getWidth() - 7, 1 do
+            local b = (i + 1) % 2;
+            if (matrix:get(i + 1, 7) == -1) then
+                    matrix:set(i + 1, 7, b);
+            end
+            if (matrix:get(7, i + 1) == -1) then
+                    matrix:set(7, i + 1, b);
+            end
+        end
+    end
+
+    function MatrixUtil.prototype:embedDarkDotAtLeftBottomConer(matrix)
+        matrix:set(8 + 1, matrix:getHeight() - 8 + 1, 1);
+    end
+
+    function MatrixUtil.prototype:embedPositionDetectionPattern(xStart, yStart, matrix)
+        for y = 1, 7 do
+            for x = 1, 7 do
+                matrix:set(xStart + x, yStart + y, self.POSITION_DETECTION_PATTERN[y][x])
+            end
+        end
+    end
+
+    function MatrixUtil.prototype:embedHorizontalSeparationPattern(xStart, yStart, matrix)
+        if #self.HORIZONTAL_SEPARATION_PATTERN[1] ~= 8 or #self.HORIZONTAL_SEPARATION_PATTERN ~= 1 then
+          error("bad horizontal separation pattern", 2);
+        end
+        for x = 1, 8 do
+            matrix:set(xStart + x, yStart, self.HORIZONTAL_SEPARATION_PATTERN[1][x]);
+        end
+    end
+
+    function MatrixUtil.prototype:embedVerticalSeparationPattern(xStart, yStart, matrix)
+        for y = 1, 7 do
+                matrix:set(xStart, yStart+y, self.VERTICAL_SEPARATION_PATTERN[y][1]);
+        end
+    end
+
+    function MatrixUtil.prototype:embedPositionDetectionPatternAndSquarators(matrix)
+        local pdpWidth = #self.POSITION_DETECTION_PATTERN[1]
+        
+        --left top corner
+        self:embedPositionDetectionPattern(0, 0, matrix);
+        --right top corner
+        self:embedPositionDetectionPattern(matrix:getWidth() - pdpWidth, 0 , matrix)
+        --left bottom corner
+        self:embedPositionDetectionPattern(0, matrix:getHeight() - pdpWidth, matrix);
+
+        local hspWidth = #self.HORIZONTAL_SEPARATION_PATTERN[1]
+        --left top corner
+        self:embedHorizontalSeparationPattern(0, hspWidth, matrix); 
+
+        --right top corner
+        self:embedHorizontalSeparationPattern(matrix:getWidth() - hspWidth, hspWidth, matrix);
+
+        --left bottom corner
+        self:embedHorizontalSeparationPattern(0, matrix:getWidth() - hspWidth + 1, matrix);
+
+        local vspSize = #self.VERTICAL_SEPARATION_PATTERN;
+        --left
+        self:embedVerticalSeparationPattern(vspSize, 0, matrix);     
+        --right
+        self:embedVerticalSeparationPattern(matrix:getWidth() - vspSize + 1, 0, matrix)
+            --left bottom
+        self:embedVerticalSeparationPattern(vspSize, matrix:getWidth() - vspSize + 1, matrix)
+    end
+end
+
+--TODO: MatrixUtil
+--
+
+
+-----------------------------------------------------
+-- BlockPair
+-----------------------------------------------------
+do
+    BlockPair.prototype = {}
+
+    function BlockPair:New(data, errorCorrection)
+        local newObj = setmetatable({}, {__index = BlockPair.prototype});
+        newObj.dataBytes = data;
+        newObj.errorCorrectionBytes = errorCorrection;
+
+        return newObj
+    end
+
+    function BlockPair.prototype:getDataBytes()
+        check(1, self, "table");
+        return self.dataBytes
+    end
+
+    function BlockPair.prototype:getErrorCorrectionBytes()
+        check(1, self, "table");
+        return self.errorCorrectionBytes
+    end
+end
+
+--------------------------------------------------------
+-- QRCodeWriter method class
+--------------------------------------------------------
+do
+    QRCodeWriter.prototype = {}
+    local QRCodeWriter_MT = { __index = QRCodeWriter.prototype}
+    function QRCodeWriter:New(contents, width, height, hints)
+        local newObj = setmetatable({}, QRCodeWriter_MT);
+        --checkArgs
+        if (contents == nil or contents == "" or strlen(contents) == 0 or type(contents) ~= "string") then
+            error("contents is empty or not string.", 2);
+        end
+        
+        if (width < 0 or height < 20 or type(width) ~= "number" or type(height) ~= "number") then
+            error("Requested dimensions are too small or not number." ,2)
+        end
+        local ecLevel  = ECList.L;--use L ecLevel
+        if (hints ~= nil) then
+
+        end
+        local code = QRCode:New();
+        --Encode:New(contents, ecLevel, hints, code);
+        newObj:renderResult(code, width, height);
+        return newObj
+    end
+
+    local martixList = {};
+    --- note that the input matrix uses 0 = white , 1 = black
+    -- while the output matrix uses
+    -- texture: WHITE8X8
+    function QRCodeWriter.prototype:renderResult(code, width, height)
+        --for wow game    
+        local matrix = code:GetMatrix();
+        if not code.frame then
+            code.frame = CreateFrame("Frame", nil)
+            code.frame:SetWidth(width);
+            code.frame:SetHeight(height);
+            code.frame:SetBackdrop({
+                bgFile = "Interface\\DialogFrame\\UI-DialogBox-Gold-Background",
+                edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Gold-Border",
+                tile = true, 
+                tileSize = 32, 
+                edgeSize = 32, 
+                insets = {
+                    left = 11,
+                    right = 12,
+                    top = 12,
+                    bottom = 11
+                }
+            });
+            code.frame:SetBackdropColor(0, 0, 0);
+            code.frame:SetPoint("CENTER", UIParent, "CENTER", 0, 0);
+        end
+
+            --clear/hide
+        if #martixList > 0 then
+            for i, m in pairs(martixList) do
+                m:ClearAllPoints()
+                m:Hide();
+            end
+        end
+        
+        --0 = white 1 = black
+        local matrixWidth = matrix:getWidth();
+        local texWidth = width / matrixWidth - 1;--scale?
+        for y = 1, matrixWidth do
+            for x = 1, matrixWidth do
+                local texNum = (y - 1) * matrixWidth + x;
+                local tex
+                if martixList[texNum] then
+                    tex = martixList[texNum];
+                else
+                    tex = code.frame:CreateTexture(nil, "ARTWORK");
+                    martixList[texNum] = tex;
+                end
+                local c = matrix:get(x, y);
+                tex:SetTexture([[Interface\BUTTONS\WHITE8X8]]);
+                tex:SetPoint("TOPLEFT", code.frame, "TOPLEFT", x == 1 and texWidth or x * texWidth, y == 1 and -texWidth or -(y * texWidth));
+                            tex:SetWidth(texWidth);
+                tex:SetHeight(texWidth);
+                tex:Show();
+                if c == 1 then
+                    tex:SetVertexColor(0, 0, 0); 
+                elseif c == 0 then
+                    tex:SetVertexColor(1, 1, 1);
+                else
+                    tex:SetVertexColor(1, 0, 0, 0.6);
+                end
+            end
+        end
+    end
+end
+
+--final
+function lib:new()
+    local barcode = QRCodeWriter:New("13788953440", 256, 256);
+    --local barcode.canvas = CreateFrame("Frame", nil)
+end
+
+do
+    lib:new();
+    --/dump LibStub("LibQRCode-1.0"):new()
+end
+
