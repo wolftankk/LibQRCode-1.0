@@ -991,7 +991,7 @@ do
         for i = 1, numZeroCoefficients do
             toEncode[dataBytes + i] = 0
         end
-
+        
         arraycopy(coefficients, 1, toEncode, dataBytes+numZeroCoefficients + 1, #coefficients)
     end
 end
@@ -2082,7 +2082,8 @@ do
         if numDataBytes ~= dataBytesOffset then
             error("Data bytes does not match offset", 2)
         end
-
+        
+        --[[
         for i = 1,  maxNumDataBytes do
             for j = 1, #blocks do
                 local dataBytes = blocks[j]:getDataBytes();
@@ -2091,16 +2092,16 @@ do
                 end
             end
         end
-        --[[
+        ]]
         for i = 1, maxNumEcBytes do
             for j = 1, #blocks do
                 local ecBytes = blocks[j]:getErrorCorrectionBytes();
-                if (i - 1) < #ecBytes then
-                    result:appendBits(ecBytes[i], 8)
+                if i <= #ecBytes then
+                    --result:appendBits(ecBytes[i], 8)
                 end
             end
         end
-
+        --[[
         if numTotalBytes ~= result:getSizeInBytes() then
             error("Interleaving error: " .. numTotalBytes .. " and " ..result:getSizeInBytes() .. " differ.", 2)
         end
@@ -2120,8 +2121,7 @@ do
 
         local ecBytes = new(numEcBytesInBlock);
         for  i = 1, numEcBytesInBlock do
-            print(toEncode[i])
-            ecBytes[i] = (toByte(toEncode[i]))
+            ecBytes[i] = (toByte(toEncode[numDataBytes + i]))
         end
         return ecBytes
     end
