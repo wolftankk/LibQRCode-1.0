@@ -477,6 +477,10 @@ do
     -- @param offset position in array to start writing
     -- @param numBytes how many bytes to write
     function BitArray.prototype:toBytes(bitOffset, array, offset, numBytes)
+        check(1, bitOffset, "number");
+        check(2, array, "table");
+        check(3, offset, "number");
+        check(4, numBytes, "number");
         for i = 1, numBytes, 1 do
             local theByte = 0;
             for j = 0, 7 do
@@ -485,7 +489,7 @@ do
                 end
                 bitOffset = bitOffset + 1;
             end
-            array[offset + i] = theByte
+            array[offset + i] = toByte(theByte)
         end
     end
 
@@ -1532,10 +1536,10 @@ do
             local y1 = MatrixUtil.TYPE_INFO_COORDINATES[i][2];
             matrix:set(x1 + 1, y1 + 1, b);
             
-            if i < 8 then
+            if i < 9 then
                 local x2 = matrix:getWidth() - i;
                 local y2 = 8;
-                matrix:set(x2, y2 + 1, b)
+                matrix:set(x2 + 1, y2 + 1, b)
             else
                 local x2 = 8
                 local y2 = matrix:getHeight() -7 + (i - 8);
@@ -1548,7 +1552,7 @@ do
         local bitIndex, dirIcon = 1, -1;
         local x = matrix:getWidth();
         local y = matrix:getHeight();
-        while (x > 0) do
+        while (x > 1) do
             if x == 7 then
                 x = x - 1
             end
@@ -1566,11 +1570,11 @@ do
                         end
 
                         if maskPattern ~= -1 then
-                            if MaskUtil:getDataMaskBit(maskPattern, xx, y) then
+                            if MaskUtil:getDataMaskBit(maskPattern, xx - 1, y - 1) then
                                 b = not b;
                             end                            
                         end
-                        
+
                         matrix:set(xx, y, b)
                     end
                 end
@@ -2078,16 +2082,16 @@ do
         if numDataBytes ~= dataBytesOffset then
             error("Data bytes does not match offset", 2)
         end
-        
+
         for i = 1,  maxNumDataBytes do
             for j = 1, #blocks do
                 local dataBytes = blocks[j]:getDataBytes();
-                if ((i - 1) < #dataBytes) then
+                if (i <= #dataBytes) then
                     result:appendBits(dataBytes[i], 8)
                 end
             end
         end
-
+        --[[
         for i = 1, maxNumEcBytes do
             for j = 1, #blocks do
                 local ecBytes = blocks[j]:getErrorCorrectionBytes();
@@ -2100,6 +2104,7 @@ do
         if numTotalBytes ~= result:getSizeInBytes() then
             error("Interleaving error: " .. numTotalBytes .. " and " ..result:getSizeInBytes() .. " differ.", 2)
         end
+        ]]
     end
 
     function Encode.prototype:generateECBytes(dataBytes, numEcBytesInBlock)
@@ -2115,6 +2120,7 @@ do
 
         local ecBytes = new(numEcBytesInBlock);
         for  i = 1, numEcBytesInBlock do
+            print(toEncode[i])
             ecBytes[i] = (toByte(toEncode[i]))
         end
         return ecBytes
@@ -2216,7 +2222,7 @@ do
             code.frame:SetBackdrop({
                 bgFile = "Interface\\DialogFrame\\UI-DialogBox-Gold-Background",
                 edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Gold-Border",
-                tile = true, 
+                tile = false, 
                 tileSize = 32, 
                 edgeSize = 32, 
                 insets = {
@@ -2226,7 +2232,8 @@ do
                     bottom = 11
                 }
             });
-            code.frame:SetBackdropColor(0, 0, 0);
+            code.frame:SetBackdropColor(0.3, 0.3, 0.3);
+            --code.frame:SetBackdropBorderColor(0, 0, 0, 0)
             code.frame:SetPoint("CENTER", UIParent, "CENTER", 0, 0);
         end
 
