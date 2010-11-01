@@ -12,7 +12,7 @@ strmatch = string.match;
 strlen = string.len;
 tinsert = table.insert;
 if dofile then
-    dofile([[/home/workspace/LibStub/LibStub.lua]]);
+    dofile([[/home/workspace/addons/LibStub/LibStub.lua]]);
 end
 if require then
     bit = require("bit");
@@ -2083,6 +2083,7 @@ do
             error("Data bytes does not match offset", 2)
         end
         
+        --生成的数据有问题, 少偏移一位？
         --[[
         for i = 1,  maxNumDataBytes do
             for j = 1, #blocks do
